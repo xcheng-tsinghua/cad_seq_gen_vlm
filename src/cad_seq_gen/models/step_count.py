@@ -40,7 +40,12 @@ class StepCountPredictor:
                 row = json.loads(line)
                 part_id = row["part_id"]
                 if row["step_index"] == step_stats.get(part_id, -1):
-                    part_to_final_target[part_id] = Path(row["target_image"])
+                    if "target_part_image" in row:
+                        part_to_final_target[part_id] = Path(row["target_part_image"])
+                    elif "target" in row and "result_frame" in row["target"]:
+                        part_to_final_target[part_id] = Path(row["target"]["result_frame"])
+                    elif "target_image" in row:
+                        part_to_final_target[part_id] = Path(row["target_image"])
 
         x_list: List[np.ndarray] = []
         y_list: List[float] = []
@@ -48,10 +53,8 @@ class StepCountPredictor:
             final_target = part_to_final_target.get(part_id)
             if final_target is None or not final_target.exists():
                 continue
-            final_canvas = Image.open(final_target).convert("RGB")
-            h, w = final_canvas.size[1], final_canvas.size[0]
-            panel = final_canvas.crop((w // 2, h // 2, w, h))  # result_frame panel
-            feat = self._encode(panel)
+            final_image = Image.open(final_target).convert("RGB")
+            feat = self._encode(final_image)
             x_list.append(feat)
             y_list.append(float(step_count))
 

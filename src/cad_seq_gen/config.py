@@ -6,37 +6,34 @@ from pathlib import Path
 class DatasetPaths:
     raw_root: Path
     out_root: Path
-    image_size: int = 512
+    val_ratio: float = 0.1
 
 
 @dataclass
 class TrainConfig:
     processed_root: Path
-    pretrained_model: str
-    controlnet_model: str
     output_dir: Path
-    image_size: int = 512
-    batch_size: int = 2
-    epochs: int = 20
-    lr: float = 1e-4
+    image_size: int = 384
+    base_channels: int = 32
+    batch_size: int = 8
+    epochs: int = 80
+    lr: float = 2e-4
+    weight_decay: float = 1e-4
     num_workers: int = 4
-    mixed_precision: str = "fp16"
-    grad_accum_steps: int = 1
     seed: int = 42
-    max_grad_norm: float = 1.0
+    device: str = "cuda"
+    sd_model_id: str = "stabilityai/stable-diffusion-3.5-medium"
+    w_sd_latent: float = 0.2
 
 
 @dataclass
 class InferConfig:
     input_image: Path
     processed_root: Path
-    pretrained_model: str
-    controlnet_model: str
-    lora_dir: Path
+    checkpoint: Path
     output_dir: Path
-    image_size: int = 512
     num_steps: int = 0
-    inference_steps_per_frame: int = 30
-    guidance_scale: float = 5.5
+    threshold: float = 0.5
     seed: int = 123
+    device: str = "cuda"
 

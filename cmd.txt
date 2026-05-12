@@ -1,0 +1,56 @@
+cd /opt/data/private/networks/cad_seq_gen_vlm/ && conda activate dp
+
+
+# 查看当前状态
+git status
+
+# 将修改添加到暂存区
+git add .
+
+# 将更改信息暂存到本地
+git commit -m "change"
+
+# 推送到远程仓库
+git push origin main
+
+git status && git add . && git commit -m "change" && git push
+
+
+# 对于目录
+# 需要将 ${directory} 更换为已被Git同步但是需要解除同步的文件夹
+git rm --cached -r ${directory}
+
+# 对于文件
+# 需要将 ${file} 更换为已被Git同步但是需要解除同步的文件
+git rm --cached ${file}
+
+
+# 远程同步到本地
+git pull origin main
+
+## 查看 nohup 的进程输出
+tail -f nohup.out
+
+## 查看 nohup 的进程
+ps -ef | grep python
+
+nohup 末尾添加该命令可以指定log文件
+> out.log 2>&1 &
+例如：nohup python script.py > out.log 2>&1 &
+
+
+# 1. 查看当前分支
+git branch
+
+# 2. 基于当前分支创建新分支
+git branch v2026.2.7
+
+# 3. 切换到新分支
+git checkout v2026.2.7
+
+# 4. 将本地分支关联到远程分支，并推送新分支到远程仓库
+git push -u origin v2026.2.7
+
+
+
+

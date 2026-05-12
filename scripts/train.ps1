@@ -1,19 +1,21 @@
 param(
   [string]$ProcessedRoot,
-  [string]$PretrainedModel = "runwayml/stable-diffusion-v1-5",
-  [string]$ControlNetModel = "lllyasviel/sd-controlnet-canny",
-  [string]$OutputDir = "./outputs/cad_seq_lora",
-  [int]$Epochs = 20,
-  [int]$BatchSize = 2,
-  [double]$Lr = 1e-4
+  [string]$OutputDir = "./outputs/structured_v2",
+  [int]$ImageSize = 384,
+  [int]$Epochs = 80,
+  [int]$BatchSize = 8,
+  [double]$Lr = 2e-4,
+  [string]$SdModelId = "stabilityai/stable-diffusion-3.5-medium",
+  [double]$WSdLatent = 0.2
 )
 
-python -m src.cad_seq_gen.train_controlnet_lora `
+python -m src.cad_seq_gen.train `
   --processed-root $ProcessedRoot `
-  --pretrained-model $PretrainedModel `
-  --controlnet-model $ControlNetModel `
   --output-dir $OutputDir `
+  --image-size $ImageSize `
   --epochs $Epochs `
   --batch-size $BatchSize `
-  --lr $Lr
+  --lr $Lr `
+  --sd-model-id $SdModelId `
+  --w-sd-latent $WSdLatent
 

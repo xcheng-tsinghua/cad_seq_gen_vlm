@@ -1,0 +1,60 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type check / lint caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Training outputs and artifacts
+outputs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Generated evaluation assets
+**/visuals/
+**/summary_metrics.png
+**/metrics.json
+**/train_history.json
+
+# Local dataset paths (keep manifests if needed)
+data/
+datasets/
+processed/
+
