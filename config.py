@@ -11,7 +11,8 @@ class DatasetPaths:
 
 @dataclass
 class TrainConfig:
-    processed_root: Path
+    raw_root: Path
+    processed_root: Path | None
     output_dir: Path
     image_size: int = 384
     base_channels: int = 32
@@ -29,8 +30,9 @@ class TrainConfig:
 @dataclass
 class InferConfig:
     input_image: Path
-    processed_root: Path
-    checkpoint: Path
+    raw_root: Path
+    processed_root: Path | None
+    checkpoint: Path | None
     output_dir: Path
     num_steps: int = 0
     threshold: float = 0.5

@@ -10,10 +10,10 @@ import torch
 import typer
 from PIL import Image
 
-from src.cad_seq_gen.models.multihead_unet import StructuredMultiHeadUNet
-from src.cad_seq_gen.models.step_count import StepCountPredictor
-from src.cad_seq_gen.utils.image_ops import save_step_images
-from src.cad_seq_gen.utils.runtime_paths import auto_run_dir, discover_latest_checkpoint
+from models.multihead_unet import StructuredMultiHeadUNet
+from models.step_count import StepCountPredictor
+from utils.image_ops import save_step_images
+from utils.runtime_paths import auto_run_dir, discover_latest_checkpoint
 
 app = typer.Typer(add_completion=False)
 KEYS = ("prev_depth_map", "sketch_plane_mask", "reference_mask", "result_frame")
@@ -66,7 +66,7 @@ def _to_pil(x: np.ndarray) -> Image.Image:
 @app.command()
 def main(
     input_image: Path = typer.Option(..., help="User input CAD part image."),
-    checkpoint: Path | None = typer.Option(None, help="best.pt path (auto if omitted)."),
+    checkpoint: Path | None = typer.Option(None, help="best.pth path (auto if omitted)."),
     raw_root: Path = typer.Option(..., help="Raw dataset root for auto step count."),
     processed_root: Path | None = typer.Option(
         None, help="Processed root for auto step count (optional compatibility mode)."

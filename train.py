@@ -13,10 +13,10 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.cad_seq_gen.data.structured_dataset import StructuredStepDataset
-from src.cad_seq_gen.models.losses import StructuredLoss, sd_latent_consistency_loss
-from src.cad_seq_gen.models.multihead_unet import StructuredMultiHeadUNet
-from src.cad_seq_gen.utils.runtime_paths import auto_run_dir, save_latest_checkpoint
+from data.structured_dataset import StructuredStepDataset
+from models.losses import StructuredLoss, sd_latent_consistency_loss
+from models.multihead_unet import StructuredMultiHeadUNet
+from utils.runtime_paths import auto_run_dir, save_latest_checkpoint
 
 app = typer.Typer(add_completion=False)
 DEFAULT_SD_MODEL = "stabilityai/stable-diffusion-3.5-medium"
@@ -83,7 +83,7 @@ def evaluate(
 
 @app.command()
 def main(
-    raw_root: Path = typer.Option('/opt/data/private/data_set/cad_seq_img', help="Raw dataset root."),
+    raw_root: Path = typer.Option(..., help="Raw dataset root."),
     processed_root: Path | None = typer.Option(None, help="Processed root with manifest.jsonl (optional compatibility mode)."),
     output_dir: Path | None = typer.Option(None, help="Training output directory (auto if omitted)."),
     image_size: int = typer.Option(384),
@@ -207,7 +207,7 @@ def main(
                     "sd_model_id": sd_model_id,
                     "w_sd_latent": w_sd_latent,
                 },
-                output_dir / "best.pt",
+                output_dir / "best.pth",
             )
         torch.save(
             {
@@ -221,7 +221,7 @@ def main(
                 "sd_model_id": sd_model_id,
                 "w_sd_latent": w_sd_latent,
             },
-            output_dir / "last.pt",
+            output_dir / "last.pth",
         )
 
         typer.echo(
@@ -231,7 +231,7 @@ def main(
     (output_dir / "train_history.json").write_text(
         json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    best_ckpt = output_dir / "best.pt"
+    best_ckpt = output_dir / "best.pth"
     if best_ckpt.exists():
         save_latest_checkpoint(raw_root=raw_root, checkpoint=best_ckpt)
         typer.echo(f"Latest checkpoint marker updated: {best_ckpt}")

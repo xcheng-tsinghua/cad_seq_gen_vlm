@@ -11,9 +11,9 @@ import torch
 import typer
 from torch.utils.data import DataLoader
 
-from src.cad_seq_gen.data.structured_dataset import StructuredStepDataset
-from src.cad_seq_gen.models.multihead_unet import StructuredMultiHeadUNet
-from src.cad_seq_gen.utils.runtime_paths import auto_run_dir, discover_latest_checkpoint
+from data.structured_dataset import StructuredStepDataset
+from models.multihead_unet import StructuredMultiHeadUNet
+from utils.runtime_paths import auto_run_dir, discover_latest_checkpoint
 
 app = typer.Typer(add_completion=False)
 HEADS = ("prev_depth_map", "sketch_plane_mask", "reference_mask", "result_frame")
@@ -89,7 +89,7 @@ def main(
     processed_root: Path | None = typer.Option(
         None, help="Processed root with manifest.jsonl (optional compatibility mode)."
     ),
-    checkpoint: Path | None = typer.Option(None, help="best.pt path (auto if omitted)."),
+    checkpoint: Path | None = typer.Option(None, help="best.pth path (auto if omitted)."),
     output_dir: Path | None = typer.Option(None, help="Evaluation output directory (auto if omitted)."),
     image_size: int = typer.Option(384),
     batch_size: int = typer.Option(8),

@@ -10,7 +10,7 @@ from PIL import Image
 from sklearn.neighbors import KNeighborsRegressor
 from transformers import CLIPModel, CLIPProcessor
 
-from src.cad_seq_gen.utils.image_ops import parse_roll_back_index
+from utils.image_ops import parse_roll_back_index
 
 
 class StepCountPredictor:

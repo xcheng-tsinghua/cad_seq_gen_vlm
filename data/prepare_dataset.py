@@ -7,7 +7,7 @@ from typing import Dict, List
 
 import typer
 
-from src.cad_seq_gen.utils.image_ops import parse_roll_back_index
+from utils.image_ops import parse_roll_back_index
 
 app = typer.Typer(add_completion=False)
 

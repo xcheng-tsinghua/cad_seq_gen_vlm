@@ -54,30 +54,32 @@ pip install -r requirements.txt
 ### 2) 训练（结构化多头，在线预处理）
 
 ```bash
-python -m src.cad_seq_gen.train --raw-root "E:/your_dataset_root"
+python -m train --raw-root "E:/your_dataset_root"
 ```
 
 输出：
-- `outputs/<dataset_name>/train_<timestamp>/best.pt`
-- `outputs/<dataset_name>/train_<timestamp>/last.pt`
-- `outputs/<dataset_name>/train_<timestamp>/train_history.json`
+- `model_trained/<dataset_name>/train_<timestamp>/best.pth`
+- `model_trained/<dataset_name>/train_<timestamp>/last.pth`
+- `model_trained/<dataset_name>/train_<timestamp>/train_history.json`
 
 ### 3) 推理（自回归步骤生成）
 
 ```bash
-python -m src.cad_seq_gen.infer --raw-root "E:/your_dataset_root" --input-image "E:/test/part.png"
+python -m infer --raw-root "E:/your_dataset_root" --input-image "E:/test/part.png"
 ```
 
-默认会自动寻找最近一次训练的 `best.pt`，并把结果保存到 `outputs/<dataset_name>/infer_<timestamp>/`。
+默认会自动寻找最近一次训练的 `best.pth`，并把结果保存到 `output/<dataset_name>/infer_<timestamp>/`。
 
 ### 4) 验证与可视化评估
 
 ```bash
-python -m src.cad_seq_gen.eval --raw-root "E:/your_dataset_root"
+python -m eval --raw-root "E:/your_dataset_root"
 ```
 
 输出：
 - `metrics.json`（四个子图分开评估）
 - `summary_metrics.png`（汇总柱状图）
 - `visuals/*.png`（预测 vs GT 对比图）
+
+评估结果保存到 `output/<dataset_name>/eval_<timestamp>/`。
 
