@@ -15,6 +15,7 @@
   - 目标零件图
   - 上一步 4 个子图
   - 目标零件边缘图
+- **分辨率策略**：读取时使用等比缩放 + padding，避免拉伸变形；推理导出时自动去 padding 并恢复原图比例。
 - **专门 loss**：
   - `mask IoU`（`sketch_plane_mask` / `reference_mask`）
   - `wireframe edge consistency`（`result_frame` 的 Sobel 梯度一致性）
@@ -53,70 +54,30 @@ pip install -r requirements.txt
 ### 2) 训练（结构化多头，在线预处理）
 
 ```bash
-python -m src.cad_seq_gen.train ^
-  --raw-root "E:/your_dataset_root" ^
-  --output-dir "E:/outputs/structured_v2" ^
-  --image-size 384 ^
-  --epochs 80 ^
-  --batch-size 8 ^
-  --sd-model-id "stabilityai/stable-diffusion-3.5-medium" ^
-  --w-sd-latent 0.2
+python -m src.cad_seq_gen.train --raw-root "E:/your_dataset_root"
 ```
 
 输出：
-- `best.pt`
-- `last.pt`
-- `train_history.json`
+- `outputs/<dataset_name>/train_<timestamp>/best.pt`
+- `outputs/<dataset_name>/train_<timestamp>/last.pt`
+- `outputs/<dataset_name>/train_<timestamp>/train_history.json`
 
 ### 3) 推理（自回归步骤生成）
 
 ```bash
-python -m src.cad_seq_gen.infer ^
-  --input-image "E:/test/part.png" ^
-  --raw-root "E:/your_dataset_root" ^
-  --checkpoint "E:/outputs/structured_v2/best.pt" ^
-  --output-dir "E:/outputs/infer_case_001" ^
-  --num-steps 0
+python -m src.cad_seq_gen.infer --raw-root "E:/your_dataset_root" --input-image "E:/test/part.png"
 ```
 
-`--num-steps 0` 表示自动预测步数。
+默认会自动寻找最近一次训练的 `best.pt`，并把结果保存到 `outputs/<dataset_name>/infer_<timestamp>/`。
 
 ### 4) 验证与可视化评估
 
 ```bash
-python -m src.cad_seq_gen.eval ^
-  --raw-root "E:/your_dataset_root" ^
-  --checkpoint "E:/outputs/structured_v2/best.pt" ^
-  --output-dir "E:/outputs/eval_structured"
+python -m src.cad_seq_gen.eval --raw-root "E:/your_dataset_root"
 ```
 
 输出：
 - `metrics.json`（四个子图分开评估）
 - `summary_metrics.png`（汇总柱状图）
 - `visuals/*.png`（预测 vs GT 对比图）
-
-## PowerShell 快捷脚本
-
-- `scripts/train.ps1`
-- `scripts/infer.ps1`
-- `scripts/eval.ps1`
-
-推荐直接用脚本，路径自动管理：
-
-```powershell
-# 只需要给数据集路径
-powershell -ExecutionPolicy Bypass -File .\scripts\train.ps1 -RawRoot "E:\your_dataset_root"
-
-# 推理只需要数据集路径 + 输入零件图（checkpoint 自动找最近一次训练）
-powershell -ExecutionPolicy Bypass -File .\scripts\infer.ps1 -RawRoot "E:\your_dataset_root" -InputImage "E:\test\part.png"
-
-# 评估只需要数据集路径（checkpoint 自动找最近一次训练）
-powershell -ExecutionPolicy Bypass -File .\scripts\eval.ps1 -RawRoot "E:\your_dataset_root"
-```
-
-输出会自动保存到：
-
-- `outputs/<dataset_name>/train_<timestamp>/`
-- `outputs/<dataset_name>/infer_<timestamp>/`
-- `outputs/<dataset_name>/eval_<timestamp>/`
 

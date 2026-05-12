@@ -16,6 +16,7 @@ from tqdm import tqdm
 from src.cad_seq_gen.data.structured_dataset import StructuredStepDataset
 from src.cad_seq_gen.models.losses import StructuredLoss, sd_latent_consistency_loss
 from src.cad_seq_gen.models.multihead_unet import StructuredMultiHeadUNet
+from src.cad_seq_gen.utils.runtime_paths import auto_run_dir, save_latest_checkpoint
 
 app = typer.Typer(add_completion=False)
 DEFAULT_SD_MODEL = "stabilityai/stable-diffusion-3.5-medium"
@@ -82,11 +83,9 @@ def evaluate(
 
 @app.command()
 def main(
-    raw_root: Path | None = typer.Option(None, help="Raw dataset root (recommended)."),
-    processed_root: Path | None = typer.Option(
-        None, help="Processed root with manifest.jsonl (optional compatibility mode)."
-    ),
-    output_dir: Path = typer.Option(..., help="Training output directory."),
+    raw_root: Path = typer.Option('/opt/data/private/data_set/cad_seq_img', help="Raw dataset root."),
+    processed_root: Path | None = typer.Option(None, help="Processed root with manifest.jsonl (optional compatibility mode)."),
+    output_dir: Path | None = typer.Option(None, help="Training output directory (auto if omitted)."),
     image_size: int = typer.Option(384),
     base_channels: int = typer.Option(32),
     epochs: int = typer.Option(80),
@@ -101,6 +100,8 @@ def main(
     w_sd_latent: float = typer.Option(0.2, help="Weight of SD latent consistency loss."),
 ) -> None:
     seed_everything(seed)
+    if output_dir is None:
+        output_dir = auto_run_dir(raw_root=raw_root, mode="train")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     use_device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
@@ -230,6 +231,11 @@ def main(
     (output_dir / "train_history.json").write_text(
         json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    best_ckpt = output_dir / "best.pt"
+    if best_ckpt.exists():
+        save_latest_checkpoint(raw_root=raw_root, checkpoint=best_ckpt)
+        typer.echo(f"Latest checkpoint marker updated: {best_ckpt}")
+    typer.echo(f"Output directory: {output_dir}")
     typer.echo(f"Done. best_val_total={best_val:.4f}")
 
 

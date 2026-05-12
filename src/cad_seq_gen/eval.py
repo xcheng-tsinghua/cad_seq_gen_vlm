@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 
 from src.cad_seq_gen.data.structured_dataset import StructuredStepDataset
 from src.cad_seq_gen.models.multihead_unet import StructuredMultiHeadUNet
+from src.cad_seq_gen.utils.runtime_paths import auto_run_dir, discover_latest_checkpoint
 
 app = typer.Typer(add_completion=False)
 HEADS = ("prev_depth_map", "sketch_plane_mask", "reference_mask", "result_frame")
@@ -84,12 +85,12 @@ def _save_visual(
 
 @app.command()
 def main(
-    raw_root: Path | None = typer.Option(None, help="Raw dataset root (recommended)."),
+    raw_root: Path = typer.Option(..., help="Raw dataset root."),
     processed_root: Path | None = typer.Option(
         None, help="Processed root with manifest.jsonl (optional compatibility mode)."
     ),
-    checkpoint: Path = typer.Option(..., help="best.pt path."),
-    output_dir: Path = typer.Option(..., help="Evaluation output directory."),
+    checkpoint: Path | None = typer.Option(None, help="best.pt path (auto if omitted)."),
+    output_dir: Path | None = typer.Option(None, help="Evaluation output directory (auto if omitted)."),
     image_size: int = typer.Option(384),
     batch_size: int = typer.Option(8),
     num_workers: int = typer.Option(4),
@@ -99,6 +100,12 @@ def main(
     seed: int = typer.Option(42),
     device: str = typer.Option("cuda"),
 ) -> None:
+    if checkpoint is None:
+        checkpoint = discover_latest_checkpoint(raw_root=raw_root)
+        if checkpoint is None:
+            raise FileNotFoundError("Checkpoint not found. Run training first or pass --checkpoint.")
+    if output_dir is None:
+        output_dir = auto_run_dir(raw_root=raw_root, mode="eval")
     output_dir.mkdir(parents=True, exist_ok=True)
     vis_dir = output_dir / "visuals"
     vis_dir.mkdir(exist_ok=True)
@@ -200,6 +207,7 @@ def main(
     fig.savefig(output_dir / "summary_metrics.png", dpi=150)
     plt.close(fig)
 
+    typer.echo(f"Output directory: {output_dir}")
     typer.echo(f"Done. Evaluated {n} samples. metrics.json saved to {output_dir}")
 
 
