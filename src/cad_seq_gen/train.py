@@ -82,7 +82,10 @@ def evaluate(
 
 @app.command()
 def main(
-    processed_root: Path = typer.Option(..., help="Root that contains manifest.jsonl."),
+    raw_root: Path | None = typer.Option(None, help="Raw dataset root (recommended)."),
+    processed_root: Path | None = typer.Option(
+        None, help="Processed root with manifest.jsonl (optional compatibility mode)."
+    ),
     output_dir: Path = typer.Option(..., help="Training output directory."),
     image_size: int = typer.Option(384),
     base_channels: int = typer.Option(32),
@@ -92,6 +95,7 @@ def main(
     weight_decay: float = typer.Option(1e-4),
     num_workers: int = typer.Option(4),
     seed: int = typer.Option(42),
+    val_ratio: float = typer.Option(0.1, help="Used only when loading from raw_root."),
     device: str = typer.Option("cuda"),
     sd_model_id: str = typer.Option(DEFAULT_SD_MODEL, help="Latest Stable Diffusion model id."),
     w_sd_latent: float = typer.Option(0.2, help="Weight of SD latent consistency loss."),
@@ -106,8 +110,22 @@ def main(
 
     vae = _load_sd_vae(sd_model_id, use_device) if w_sd_latent > 0 else None
 
-    train_ds = StructuredStepDataset(processed_root=processed_root, split="train", image_size=image_size)
-    val_ds = StructuredStepDataset(processed_root=processed_root, split="val", image_size=image_size)
+    train_ds = StructuredStepDataset(
+        processed_root=processed_root,
+        raw_root=raw_root,
+        split="train",
+        image_size=image_size,
+        val_ratio=val_ratio,
+        seed=seed,
+    )
+    val_ds = StructuredStepDataset(
+        processed_root=processed_root,
+        raw_root=raw_root,
+        split="val",
+        image_size=image_size,
+        val_ratio=val_ratio,
+        seed=seed,
+    )
     if len(train_ds) == 0:
         raise RuntimeError("Empty training split for structured dataset.")
 

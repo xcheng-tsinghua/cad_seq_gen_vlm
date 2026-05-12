@@ -84,14 +84,19 @@ def _save_visual(
 
 @app.command()
 def main(
-    processed_root: Path = typer.Option(..., help="Root that contains manifest.jsonl."),
+    raw_root: Path | None = typer.Option(None, help="Raw dataset root (recommended)."),
+    processed_root: Path | None = typer.Option(
+        None, help="Processed root with manifest.jsonl (optional compatibility mode)."
+    ),
     checkpoint: Path = typer.Option(..., help="best.pt path."),
     output_dir: Path = typer.Option(..., help="Evaluation output directory."),
     image_size: int = typer.Option(384),
     batch_size: int = typer.Option(8),
     num_workers: int = typer.Option(4),
+    val_ratio: float = typer.Option(0.1, help="Used only when loading from raw_root."),
     threshold: float = typer.Option(0.5),
     max_visuals: int = typer.Option(40),
+    seed: int = typer.Option(42),
     device: str = typer.Option("cuda"),
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -100,7 +105,14 @@ def main(
 
     use_device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
     model, _ = _load_checkpoint(checkpoint, use_device)
-    val_ds = StructuredStepDataset(processed_root=processed_root, split="val", image_size=image_size)
+    val_ds = StructuredStepDataset(
+        processed_root=processed_root,
+        raw_root=raw_root,
+        split="val",
+        image_size=image_size,
+        val_ratio=val_ratio,
+        seed=seed,
+    )
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,

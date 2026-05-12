@@ -10,6 +10,8 @@ from PIL import Image
 from sklearn.neighbors import KNeighborsRegressor
 from transformers import CLIPModel, CLIPProcessor
 
+from src.cad_seq_gen.utils.image_ops import parse_roll_back_index
+
 
 class StepCountPredictor:
     """Predict sequence length from target CAD image via CLIP + KNN."""
@@ -60,6 +62,32 @@ class StepCountPredictor:
 
         if not x_list:
             raise RuntimeError("No valid training samples for step count predictor.")
+        self.knn.fit(np.stack(x_list), np.array(y_list))
+        self.fitted = True
+
+    def fit_from_raw(self, raw_root: Path) -> None:
+        raw_root = Path(raw_root)
+        part_dirs = [p for p in raw_root.iterdir() if p.is_dir()]
+        x_list: List[np.ndarray] = []
+        y_list: List[float] = []
+
+        for part_dir in part_dirs:
+            step_dirs = [
+                p for p in part_dir.iterdir() if p.is_dir() and p.name.startswith("roll_back_index_")
+            ]
+            step_dirs.sort(key=lambda p: parse_roll_back_index(p.name))
+            if not step_dirs:
+                continue
+            final_image_path = step_dirs[-1] / "result_frame.png"
+            if not final_image_path.exists():
+                continue
+            final_image = Image.open(final_image_path).convert("RGB")
+            feat = self._encode(final_image)
+            x_list.append(feat)
+            y_list.append(float(len(step_dirs)))
+
+        if not x_list:
+            raise RuntimeError("No valid raw samples for step count predictor.")
         self.knn.fit(np.stack(x_list), np.array(y_list))
         self.fitted = True
 

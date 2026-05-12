@@ -50,24 +50,11 @@ root/
 pip install -r requirements.txt
 ```
 
-### 2) 预处理
-
-```bash
-python -m src.cad_seq_gen.data.prepare_dataset ^
-  --raw-root "E:/your_dataset_root" ^
-  --out-root "E:/your_processed_root"
-```
-
-输出：
-- `manifest.jsonl`
-- `train_split.json` / `val_split.json`
-- `step_stats.json`
-
-### 3) 训练（结构化多头）
+### 2) 训练（结构化多头，在线预处理）
 
 ```bash
 python -m src.cad_seq_gen.train ^
-  --processed-root "E:/your_processed_root" ^
+  --raw-root "E:/your_dataset_root" ^
   --output-dir "E:/outputs/structured_v2" ^
   --image-size 384 ^
   --epochs 80 ^
@@ -81,12 +68,12 @@ python -m src.cad_seq_gen.train ^
 - `last.pt`
 - `train_history.json`
 
-### 4) 推理（自回归步骤生成）
+### 3) 推理（自回归步骤生成）
 
 ```bash
 python -m src.cad_seq_gen.infer ^
   --input-image "E:/test/part.png" ^
-  --processed-root "E:/your_processed_root" ^
+  --raw-root "E:/your_dataset_root" ^
   --checkpoint "E:/outputs/structured_v2/best.pt" ^
   --output-dir "E:/outputs/infer_case_001" ^
   --num-steps 0
@@ -94,11 +81,11 @@ python -m src.cad_seq_gen.infer ^
 
 `--num-steps 0` 表示自动预测步数。
 
-### 5) 验证与可视化评估
+### 4) 验证与可视化评估
 
 ```bash
 python -m src.cad_seq_gen.eval ^
-  --processed-root "E:/your_processed_root" ^
+  --raw-root "E:/your_dataset_root" ^
   --checkpoint "E:/outputs/structured_v2/best.pt" ^
   --output-dir "E:/outputs/eval_structured"
 ```
@@ -113,4 +100,23 @@ python -m src.cad_seq_gen.eval ^
 - `scripts/train.ps1`
 - `scripts/infer.ps1`
 - `scripts/eval.ps1`
+
+推荐直接用脚本，路径自动管理：
+
+```powershell
+# 只需要给数据集路径
+powershell -ExecutionPolicy Bypass -File .\scripts\train.ps1 -RawRoot "E:\your_dataset_root"
+
+# 推理只需要数据集路径 + 输入零件图（checkpoint 自动找最近一次训练）
+powershell -ExecutionPolicy Bypass -File .\scripts\infer.ps1 -RawRoot "E:\your_dataset_root" -InputImage "E:\test\part.png"
+
+# 评估只需要数据集路径（checkpoint 自动找最近一次训练）
+powershell -ExecutionPolicy Bypass -File .\scripts\eval.ps1 -RawRoot "E:\your_dataset_root"
+```
+
+输出会自动保存到：
+
+- `outputs/<dataset_name>/train_<timestamp>/`
+- `outputs/<dataset_name>/infer_<timestamp>/`
+- `outputs/<dataset_name>/eval_<timestamp>/`
 

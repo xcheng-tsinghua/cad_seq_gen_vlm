@@ -44,7 +44,10 @@ def _to_pil(x: np.ndarray) -> Image.Image:
 def main(
     input_image: Path = typer.Option(..., help="User input CAD part image."),
     checkpoint: Path = typer.Option(..., help="best.pt path."),
-    processed_root: Path = typer.Option(..., help="Dataset root with step_stats.json for auto step count."),
+    raw_root: Path | None = typer.Option(None, help="Raw dataset root for auto step count."),
+    processed_root: Path | None = typer.Option(
+        None, help="Processed root for auto step count (optional compatibility mode)."
+    ),
     output_dir: Path = typer.Option(..., help="Output sequence directory."),
     num_steps: int = typer.Option(0, help="If 0 then auto-predict."),
     threshold: float = typer.Option(0.5, help="Binary threshold for mask/frame heads."),
@@ -61,7 +64,12 @@ def main(
 
     if num_steps <= 0:
         predictor = StepCountPredictor(device=str(use_device))
-        predictor.fit(processed_root=processed_root)
+        if raw_root is not None:
+            predictor.fit_from_raw(raw_root=raw_root)
+        elif processed_root is not None:
+            predictor.fit(processed_root=processed_root)
+        else:
+            raise ValueError("num_steps=0 requires either raw_root or processed_root.")
         pred_steps = predictor.predict(_to_pil(target_part), min_steps=1, max_steps=40)
         num_steps = pred_steps
 
