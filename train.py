@@ -83,7 +83,7 @@ def evaluate(
 
 @app.command()
 def main(
-    raw_root: Path = typer.Option(..., help="Raw dataset root."),
+    raw_root: Path = typer.Option('/opt/data/private/data_set/cad_seq_img', help="Raw dataset root."),
     processed_root: Path | None = typer.Option(None, help="Processed root with manifest.jsonl (optional compatibility mode)."),
     output_dir: Path | None = typer.Option(None, help="Training output directory (auto if omitted)."),
     image_size: int = typer.Option(384),
