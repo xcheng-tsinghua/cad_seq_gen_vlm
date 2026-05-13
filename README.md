@@ -1,8 +1,9 @@
 
 # environment
+这里 cuda 版本是 12.2
 conda create -n cad_vlm python=3.11.11
 conda activate cad_vlm
-conda install pytorch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+pip install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 --index-url https://download.pytorch.org/whl/cu121
 
 # CAD Sequence Generation (Structured V2 Only)
 
@@ -30,8 +31,30 @@ conda install pytorch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 pytorch-cuda=
 
 ## 最新 Stable Diffusion
 
-训练默认从 `model_trained/stable-diffusion-3.5-medium` 加载 SD 权重（VAE）。
-如果本地不存在，会回退到 HuggingFace 下载（`--sd-model-id` 可改为本地路径或仓库 id）。
+训练脚本固定使用以下路径：
+
+- `vlm/stable-diffusion-3.5-medium/sd3.5_medium.safetensors`
+- `vlm/stable-diffusion-3.5-medium/sd3.5_medium_config.json`
+
+如果任一文件不存在，会从 HuggingFace 下载后复制到上述固定位置。
+其中：
+- `sd3.5_medium.safetensors`：下载 `sd3.5_medium.safetensors`
+- `sd3.5_medium_config.json`：下载 `vae/config.json` 并重命名保存
+
+## HuggingFace 登录
+
+`stabilityai/stable-diffusion-3.5-medium` 是 gated 模型，下载前需要登录。  
+Access Token 固定从 `vlm/hf_access_token.json` 读取。
+
+```bash
+# 请直接编辑文件：
+# vlm/hf_access_token.json
+# {
+#   "access_token": "hf_xxx"
+# }
+```
+
+如果 `--w-sd-latent 0` 则不启用 VAE，跳过登录与下载。
 
 ## 原始数据目录
 

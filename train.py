@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import random
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 
 import numpy as np
 import torch
 import typer
-from huggingface_hub import snapshot_download
+from diffusers import AutoencoderKL
+from huggingface_hub import hf_hub_download, login, snapshot_download
 from safetensors.torch import load_file as load_safetensors
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -21,6 +24,11 @@ from utils.runtime_paths import auto_run_dir, project_root, save_latest_checkpoi
 
 app = typer.Typer(add_completion=False)
 DEFAULT_SD_MODEL = "stable-diffusion-3.5-medium"
+DEFAULT_SD_REPO = "stabilityai/stable-diffusion-3.5-medium"
+TOKEN_FILE = project_root() / "vlm" / "hf_access_token.json"
+SD35_DIR = project_root() / "vlm" / DEFAULT_SD_MODEL
+SD35_WEIGHT_PATH = SD35_DIR / "sd3.5_medium.safetensors"
+SD35_CONFIG_PATH = SD35_DIR / "sd3.5_medium_config.json"
 
 
 def seed_everything(seed: int) -> None:
@@ -30,63 +38,125 @@ def seed_everything(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def _import_autoencoder_kl() -> Any:
-    """Import AutoencoderKL lazily."""
-    from diffusers import AutoencoderKL
+def _load_hf_token_from_file(token_file: Path = TOKEN_FILE) -> str | None:
+    """Read Hugging Face access token from JSON file under vlm/."""
+    if not token_file.exists():
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(
+            json.dumps(
+                {
+                    "access_token": "",
+                    "note": "Put your Hugging Face token here, then rerun training.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        typer.echo(f"[warn] Token file created: {token_file}. Please fill access_token.")
+        return None
+    try:
+        payload = json.loads(token_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid JSON token file: {token_file}. {exc}") from exc
+    token = str(payload.get("access_token", "")).strip()
+    return token or None
 
-    return AutoencoderKL
+
+def _hf_login_if_needed(token: str | None) -> None:
+    """Log in to Hugging Face Hub using token from the JSON file."""
+    if not token:
+        typer.echo(
+            "[warn] No Hugging Face token provided. Gated/private repos "
+            "(e.g. SD 3.5 medium) may fail to download. "
+            f"Please set access_token in: {TOKEN_FILE}"
+        )
+        return
+    os.environ["HF_TOKEN"] = token
+    os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", token)
+    try:
+        login(token=token, add_to_git_credential=False)
+        typer.echo("[info] Logged in to Hugging Face Hub.")
+    except Exception as exc:
+        typer.echo(f"[warn] Hugging Face login failed: {exc}")
 
 
-def _resolve_vae_dir(model_id_or_path: str) -> Path:
-    model_path = Path(model_id_or_path)
-    candidates = []
-    if model_path.is_absolute():
-        candidates.append(model_path)
-    else:
-        candidates.append(Path.cwd() / model_path)
-        candidates.append(project_root() / "model_trained" / model_path)
+def _repo_id_hint(model_id_or_path: str) -> str | None:
+    # Full HF repo id
+    if "/" in model_id_or_path:
+        return model_id_or_path
+    # Local short name convention in this project
+    if model_id_or_path == DEFAULT_SD_MODEL:
+        return DEFAULT_SD_REPO
+    return None
 
-    root = None
-    for cand in candidates:
-        if cand.exists():
-            root = cand
-            break
 
-    if root is None:
-        root = Path(
-            snapshot_download(
-                repo_id=model_id_or_path,
-                local_dir_use_symlinks=False,
+def _ensure_sd35_assets(model_id_or_path: str, token: str | None) -> tuple[Path, Path]:
+    """Ensure SD3.5 weight+config exist at fixed paths under vlm/."""
+    SD35_DIR.mkdir(parents=True, exist_ok=True)
+    if SD35_WEIGHT_PATH.exists() and SD35_CONFIG_PATH.exists():
+        return SD35_WEIGHT_PATH, SD35_CONFIG_PATH
+
+    repo_id = _repo_id_hint(model_id_or_path) or model_id_or_path
+    if not SD35_WEIGHT_PATH.exists():
+        downloaded_weight = Path(
+            hf_hub_download(
+                repo_id=repo_id,
+                filename="sd3.5_medium.safetensors",
+                token=token,
             )
         )
-    return root / "vae" if (root / "vae").exists() else root
+        shutil.copy2(downloaded_weight, SD35_WEIGHT_PATH)
+        typer.echo(f"[info] downloaded SD3.5 weights to: {SD35_WEIGHT_PATH}")
+
+    if not SD35_CONFIG_PATH.exists():
+        # Use VAE config and persist to the required fixed filename.
+        downloaded_cfg = Path(
+            hf_hub_download(
+                repo_id=repo_id,
+                filename="vae/config.json",
+                token=token,
+            )
+        )
+        shutil.copy2(downloaded_cfg, SD35_CONFIG_PATH)
+        typer.echo(f"[info] downloaded SD3.5 config to: {SD35_CONFIG_PATH}")
+    return SD35_WEIGHT_PATH, SD35_CONFIG_PATH
 
 
-def _load_sd_vae(model_id: str, device: torch.device) -> Any:
-    """Create VAE instance first, then load weights manually."""
-    AutoencoderKL = _import_autoencoder_kl()
-    vae_dir = _resolve_vae_dir(model_id)
-    config_path = vae_dir / "config.json"
-    if not config_path.exists():
-        raise FileNotFoundError(f"VAE config not found: {config_path}")
+def _extract_vae_state_dict_from_sd35_single_file(weight_path: Path) -> Dict[str, torch.Tensor]:
+    """Extract VAE weights from full SD3.5 single-file checkpoint."""
+    full_state = load_safetensors(str(weight_path), device="cpu")
+    prefixes = ("first_stage_model.", "vae.")
+    vae_state: Dict[str, torch.Tensor] = {}
+    for key, value in full_state.items():
+        for prefix in prefixes:
+            if key.startswith(prefix):
+                vae_state[key[len(prefix) :]] = value
+                break
+    # Fallback: if the file is already a pure VAE checkpoint.
+    if not vae_state:
+        vae_state = full_state
+    return vae_state
 
+
+def _load_sd_vae(model_id: str, device: torch.device, token: str | None) -> Any:
+    """Create VAE from the fixed SD3.5 config+weight paths under vlm/."""
+    weight_path, config_path = _ensure_sd35_assets(model_id_or_path=model_id, token=token)
     cfg = json.loads(config_path.read_text(encoding="utf-8"))
     vae = AutoencoderKL.from_config(cfg)
-
-    st_path = vae_dir / "diffusion_pytorch_model.safetensors"
-    bin_path = vae_dir / "diffusion_pytorch_model.bin"
-    if st_path.exists():
-        state_dict = load_safetensors(str(st_path), device="cpu")
-    elif bin_path.exists():
-        loaded = torch.load(bin_path, map_location="cpu")
-        state_dict = loaded.get("state_dict", loaded) if isinstance(loaded, dict) else loaded
-    else:
-        raise FileNotFoundError(f"No VAE weight file found in: {vae_dir}")
+    state_dict = _extract_vae_state_dict_from_sd35_single_file(weight_path)
 
     missing, unexpected = vae.load_state_dict(state_dict, strict=False)
+    expected = len(vae.state_dict())
+    if expected > 0 and len(missing) > 0.5 * expected:
+        raise RuntimeError(
+            f"VAE state_dict mismatch: missing={len(missing)}/{expected}. "
+            "Cannot parse VAE params from sd3.5 single-file checkpoint."
+        )
     if missing or unexpected:
         typer.echo(
-            f"[warn] VAE state_dict mismatch: missing={len(missing)}, unexpected={len(unexpected)}"
+            f"[warn] VAE state_dict partial match: "
+            f"missing={len(missing)}, unexpected={len(unexpected)}"
         )
     vae = vae.to(device)
     vae.eval()
@@ -150,10 +220,13 @@ def main(
     seed: int = typer.Option(42),
     val_ratio: float = typer.Option(0.1, help="Used only when loading from raw_root."),
     device: str = typer.Option("cuda"),
-    sd_model_id: str = typer.Option(DEFAULT_SD_MODEL, help="Default loads from model_trained/<name>; fallback to HF repo id/path.",),
+    sd_model_id: str = typer.Option(DEFAULT_SD_MODEL, help="HF repo id (default stabilityai/stable-diffusion-3.5-medium)."),
     w_sd_latent: float = typer.Option(0.2, help="Weight of SD latent consistency loss."),
 ) -> None:
     seed_everything(seed)
+    token = _load_hf_token_from_file()
+    if w_sd_latent > 0:
+        _hf_login_if_needed(token)
     if output_dir is None:
         output_dir = auto_run_dir(raw_root=raw_root, mode="train")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +236,7 @@ def main(
     loss_fn = StructuredLoss()
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
-    vae = _load_sd_vae(sd_model_id, use_device) if w_sd_latent > 0 else None
+    vae = _load_sd_vae(sd_model_id, use_device, token) if w_sd_latent > 0 else None
 
     train_ds = StructuredStepDataset(
         processed_root=processed_root,
@@ -295,4 +368,3 @@ def main(
 
 if __name__ == "__main__":
     app()
-
