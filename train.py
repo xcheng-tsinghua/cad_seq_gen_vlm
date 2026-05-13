@@ -236,7 +236,7 @@ def main(
 
     use_device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
     model = StructuredMultiHeadUNet(in_channels=6, base_channels=base_channels).to(use_device)
-    loss_fn = StructuredLoss()
+    loss_fn = StructuredLoss().to(use_device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     vae = _load_sd_vae(sd_model_id, use_device, token) if w_sd_latent > 0 else None
