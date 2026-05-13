@@ -11,7 +11,8 @@ import numpy as np
 import torch
 import typer
 from diffusers import AutoencoderKL
-from huggingface_hub import hf_hub_download, login, snapshot_download
+from huggingface_hub import hf_hub_download
+from safetensors import safe_open
 from safetensors.torch import load_file as load_safetensors
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -64,7 +65,7 @@ def _load_hf_token_from_file(token_file: Path = TOKEN_FILE) -> str | None:
 
 
 def _hf_login_if_needed(token: str | None) -> None:
-    """Log in to Hugging Face Hub using token from the JSON file."""
+    """Prepare HuggingFace auth environment using token from JSON file."""
     if not token:
         typer.echo(
             "[warn] No Hugging Face token provided. Gated/private repos "
@@ -74,11 +75,7 @@ def _hf_login_if_needed(token: str | None) -> None:
         return
     os.environ["HF_TOKEN"] = token
     os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", token)
-    try:
-        login(token=token, add_to_git_credential=False)
-        typer.echo("[info] Logged in to Hugging Face Hub.")
-    except Exception as exc:
-        typer.echo(f"[warn] Hugging Face login failed: {exc}")
+    typer.echo("[info] Hugging Face token loaded from JSON file.")
 
 
 def _repo_id_hint(model_id_or_path: str) -> str | None:
@@ -91,23 +88,39 @@ def _repo_id_hint(model_id_or_path: str) -> str | None:
     return None
 
 
+def _is_vae_compatible_weight(weight_path: Path) -> bool:
+    """Heuristically verify whether a safetensors file is VAE-only weights."""
+    try:
+        with safe_open(str(weight_path), framework="pt", device="cpu") as f:
+            keys = list(f.keys())
+    except Exception:
+        return False
+    if not keys:
+        return False
+    vae_prefixes = ("encoder.", "decoder.", "quant_conv.", "post_quant_conv.")
+    return any(k.startswith(vae_prefixes) for k in keys)
+
+
 def _ensure_sd35_assets(model_id_or_path: str, token: str | None) -> tuple[Path, Path]:
     """Ensure SD3.5 weight+config exist at fixed paths under vlm/."""
     SD35_DIR.mkdir(parents=True, exist_ok=True)
-    if SD35_WEIGHT_PATH.exists() and SD35_CONFIG_PATH.exists():
-        return SD35_WEIGHT_PATH, SD35_CONFIG_PATH
-
     repo_id = _repo_id_hint(model_id_or_path) or model_id_or_path
-    if not SD35_WEIGHT_PATH.exists():
+    need_download_weight = (not SD35_WEIGHT_PATH.exists()) or (not _is_vae_compatible_weight(SD35_WEIGHT_PATH))
+    if need_download_weight:
+        if SD35_WEIGHT_PATH.exists():
+            typer.echo(
+                f"[warn] Existing weight at {SD35_WEIGHT_PATH} is not VAE-compatible. "
+                "Will overwrite with HF vae/diffusion_pytorch_model.safetensors."
+            )
         downloaded_weight = Path(
             hf_hub_download(
                 repo_id=repo_id,
-                filename="sd3.5_medium.safetensors",
+                filename="vae/diffusion_pytorch_model.safetensors",
                 token=token,
             )
         )
         shutil.copy2(downloaded_weight, SD35_WEIGHT_PATH)
-        typer.echo(f"[info] downloaded SD3.5 weights to: {SD35_WEIGHT_PATH}")
+        typer.echo(f"[info] downloaded SD3.5 VAE weights to: {SD35_WEIGHT_PATH}")
 
     if not SD35_CONFIG_PATH.exists():
         # Use VAE config and persist to the required fixed filename.
@@ -124,19 +137,8 @@ def _ensure_sd35_assets(model_id_or_path: str, token: str | None) -> tuple[Path,
 
 
 def _extract_vae_state_dict_from_sd35_single_file(weight_path: Path) -> Dict[str, torch.Tensor]:
-    """Extract VAE weights from full SD3.5 single-file checkpoint."""
-    full_state = load_safetensors(str(weight_path), device="cpu")
-    prefixes = ("first_stage_model.", "vae.")
-    vae_state: Dict[str, torch.Tensor] = {}
-    for key, value in full_state.items():
-        for prefix in prefixes:
-            if key.startswith(prefix):
-                vae_state[key[len(prefix) :]] = value
-                break
-    # Fallback: if the file is already a pure VAE checkpoint.
-    if not vae_state:
-        vae_state = full_state
-    return vae_state
+    """Load VAE state_dict from fixed local safetensors file."""
+    return load_safetensors(str(weight_path), device="cpu")
 
 
 def _load_sd_vae(model_id: str, device: torch.device, token: str | None) -> Any:
@@ -151,7 +153,8 @@ def _load_sd_vae(model_id: str, device: torch.device, token: str | None) -> Any:
     if expected > 0 and len(missing) > 0.5 * expected:
         raise RuntimeError(
             f"VAE state_dict mismatch: missing={len(missing)}/{expected}. "
-            "Cannot parse VAE params from sd3.5 single-file checkpoint."
+            f"Weight file is incompatible: {weight_path}. "
+            "Please ensure token is valid and rerun to redownload VAE weights."
         )
     if missing or unexpected:
         typer.echo(
