@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import random
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 import torch
 import typer
-from diffusers import AutoencoderKL
+from huggingface_hub import snapshot_download
+from safetensors.torch import load_file as load_safetensors
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -16,10 +17,10 @@ from tqdm import tqdm
 from data.structured_dataset import StructuredStepDataset
 from models.losses import StructuredLoss, sd_latent_consistency_loss
 from models.multihead_unet import StructuredMultiHeadUNet
-from utils.runtime_paths import auto_run_dir, save_latest_checkpoint
+from utils.runtime_paths import auto_run_dir, project_root, save_latest_checkpoint
 
 app = typer.Typer(add_completion=False)
-DEFAULT_SD_MODEL = "stabilityai/stable-diffusion-3.5-medium"
+DEFAULT_SD_MODEL = "stable-diffusion-3.5-medium"
 
 
 def seed_everything(seed: int) -> None:
@@ -29,11 +30,64 @@ def seed_everything(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def _load_sd_vae(model_id: str, device: torch.device) -> AutoencoderKL:
-    try:
-        vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
-    except Exception:
-        vae = AutoencoderKL.from_pretrained(model_id)
+def _import_autoencoder_kl() -> Any:
+    """Import AutoencoderKL lazily."""
+    from diffusers import AutoencoderKL
+
+    return AutoencoderKL
+
+
+def _resolve_vae_dir(model_id_or_path: str) -> Path:
+    model_path = Path(model_id_or_path)
+    candidates = []
+    if model_path.is_absolute():
+        candidates.append(model_path)
+    else:
+        candidates.append(Path.cwd() / model_path)
+        candidates.append(project_root() / "model_trained" / model_path)
+
+    root = None
+    for cand in candidates:
+        if cand.exists():
+            root = cand
+            break
+
+    if root is None:
+        root = Path(
+            snapshot_download(
+                repo_id=model_id_or_path,
+                local_dir_use_symlinks=False,
+            )
+        )
+    return root / "vae" if (root / "vae").exists() else root
+
+
+def _load_sd_vae(model_id: str, device: torch.device) -> Any:
+    """Create VAE instance first, then load weights manually."""
+    AutoencoderKL = _import_autoencoder_kl()
+    vae_dir = _resolve_vae_dir(model_id)
+    config_path = vae_dir / "config.json"
+    if not config_path.exists():
+        raise FileNotFoundError(f"VAE config not found: {config_path}")
+
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    vae = AutoencoderKL.from_config(cfg)
+
+    st_path = vae_dir / "diffusion_pytorch_model.safetensors"
+    bin_path = vae_dir / "diffusion_pytorch_model.bin"
+    if st_path.exists():
+        state_dict = load_safetensors(str(st_path), device="cpu")
+    elif bin_path.exists():
+        loaded = torch.load(bin_path, map_location="cpu")
+        state_dict = loaded.get("state_dict", loaded) if isinstance(loaded, dict) else loaded
+    else:
+        raise FileNotFoundError(f"No VAE weight file found in: {vae_dir}")
+
+    missing, unexpected = vae.load_state_dict(state_dict, strict=False)
+    if missing or unexpected:
+        typer.echo(
+            f"[warn] VAE state_dict mismatch: missing={len(missing)}, unexpected={len(unexpected)}"
+        )
     vae = vae.to(device)
     vae.eval()
     vae.requires_grad_(False)
@@ -46,7 +100,7 @@ def evaluate(
     loader: DataLoader,
     loss_fn: StructuredLoss,
     device: torch.device,
-    vae: AutoencoderKL | None = None,
+    vae: Any | None = None,
     w_sd_latent: float = 0.0,
 ) -> Dict[str, float]:
     model.eval()
@@ -96,7 +150,7 @@ def main(
     seed: int = typer.Option(42),
     val_ratio: float = typer.Option(0.1, help="Used only when loading from raw_root."),
     device: str = typer.Option("cuda"),
-    sd_model_id: str = typer.Option(DEFAULT_SD_MODEL, help="Latest Stable Diffusion model id."),
+    sd_model_id: str = typer.Option(DEFAULT_SD_MODEL, help="Default loads from model_trained/<name>; fallback to HF repo id/path.",),
     w_sd_latent: float = typer.Option(0.2, help="Weight of SD latent consistency loss."),
 ) -> None:
     seed_everything(seed)

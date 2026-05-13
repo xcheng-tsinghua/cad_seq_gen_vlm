@@ -1,4 +1,4 @@
-cd /opt/data/private/networks/cad_seq_gen_vlm/ && conda activate dp
+cd /opt/data/private/networks/cad_seq_gen_vlm/ && conda activate cad_vlm
 
 
 # 查看当前状态

@@ -3,6 +3,7 @@ torchvision>=0.17.0
 diffusers>=0.31.0
 transformers>=4.46.0
 accelerate>=0.34.0
+huggingface-hub>=0.24.0
 safetensors>=0.4.5
 pillow>=10.0.0
 opencv-python>=4.10.0

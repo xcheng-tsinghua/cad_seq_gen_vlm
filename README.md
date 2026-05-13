@@ -1,3 +1,9 @@
+
+# environment
+conda create -n cad_vlm python=3.11.11
+conda activate cad_vlm
+conda install pytorch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+
 # CAD Sequence Generation (Structured V2 Only)
 
 这个仓库只保留第二版：**结构化多头生成**。  
@@ -24,11 +30,8 @@
 
 ## 最新 Stable Diffusion
 
-训练默认使用：
-
-- `stabilityai/stable-diffusion-3.5-medium`
-
-作为 VAE 感知约束来源（`--sd-model-id` 可改）。
+训练默认从 `model_trained/stable-diffusion-3.5-medium` 加载 SD 权重（VAE）。
+如果本地不存在，会回退到 HuggingFace 下载（`--sd-model-id` 可改为本地路径或仓库 id）。
 
 ## 原始数据目录
 
