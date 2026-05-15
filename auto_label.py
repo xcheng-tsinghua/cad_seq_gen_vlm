@@ -61,6 +61,7 @@ from tqdm.auto import tqdm
 from config import (
     ANCHOR_VIEW_SUFFIX,
     I_FINAL_FILENAME,
+    PRETRAINED_DIR,
     PROMPT_FILENAME,
     ROW_FILENAMES,
     STEP_DIR_PREFIX,
@@ -209,7 +210,11 @@ class Qwen25VLLabeler:
             cfg.model_name_or_path,
             min_pixels=cfg.min_pixels,
             max_pixels=cfg.max_pixels,
+            cache_dir=PRETRAINED_DIR,
         )
+
+        # Cache redirection for the model snapshot itself.
+        load_kwargs["cache_dir"] = PRETRAINED_DIR
 
         try:
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(

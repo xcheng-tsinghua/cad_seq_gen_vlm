@@ -26,8 +26,56 @@ Therefore each grid tensor has shape ``(3, NUM_ROWS * TILE_H, NUM_VIEWS * TILE_W
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional, Tuple
+
+
+# ---------------------------------------------------------------------------
+# Where every HuggingFace download (Qwen2.5-VL, SDXL, CLIP-Vision, etc.)
+# should land. The folder lives next to this file so the project is fully
+# self-contained on disk: no surprise downloads into ``~/.cache/huggingface``.
+# ---------------------------------------------------------------------------
+PRETRAINED_DIR: str = str((Path(__file__).resolve().parent / "pretrained_lm").resolve())
+
+
+def set_hf_cache_env(force: bool = False) -> str:
+    """Point HuggingFace's download caches at :data:`PRETRAINED_DIR`.
+
+    Sets ``HF_HOME``, ``HF_HUB_CACHE``, ``HUGGINGFACE_HUB_CACHE`` and the
+    legacy ``TRANSFORMERS_CACHE`` env vars. By default a variable is left
+    untouched if the user has already exported it; pass ``force=True`` to
+    override.
+
+    Must be called BEFORE the first ``import transformers`` /
+    ``import diffusers`` for the env vars to take effect. Because this
+    function is invoked at the bottom of this module, importing ``config``
+    anywhere in the project is sufficient.
+
+    Returns
+    -------
+    str
+        The resolved cache directory (== ``PRETRAINED_DIR``).
+    """
+    os.makedirs(PRETRAINED_DIR, exist_ok=True)
+
+    # Modern names: hub cache lives directly here (no ``hub/`` subfolder).
+    cache_keys = ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE")
+    for k in cache_keys:
+        if force or not os.environ.get(k):
+            os.environ[k] = PRETRAINED_DIR
+
+    # Parent dir used by some HF tools to derive other paths.
+    if force or not os.environ.get("HF_HOME"):
+        os.environ["HF_HOME"] = PRETRAINED_DIR
+    return PRETRAINED_DIR
+
+
+# Auto-redirect on import so any downstream module that imports ``config``
+# (which is every entry-point script in this project) gets the right cache
+# location before it touches transformers / diffusers / huggingface_hub.
+set_hf_cache_env()
 
 
 # Row / view layout of the 4 x 8 grid =====================================

@@ -30,13 +30,31 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from config import DataConfig, ModelConfig, TrainConfig
-from dataset import CADMultiViewDataset, collate_cad_batch
+from dataset import CADMultiViewDataset, collate_cad_batch, make_worker_init_fn
 from models import CADMultiViewPipeline
 
 
 # ---------------------------------------------------------------------------
 def _count_trainable(named_params) -> int:
     return sum(p.numel() for n, p in named_params if p.requires_grad)
+
+
+def _save_checkpoint(
+    pipeline: CADMultiViewPipeline,
+    accelerator: Accelerator,
+    ckpt_dir: str,
+) -> None:
+    """Unwrap accelerate/DDP wrappers and call :meth:`save_trainables`.
+
+    Without unwrapping, ``named_parameters()`` keys would carry a ``module.``
+    prefix under DDP -- :meth:`load_trainables` would then silently miss them.
+    """
+    pipeline.save_trainables(
+        ckpt_dir,
+        unet_module=accelerator.unwrap_model(pipeline.unet),
+        mv_controlnet_module=accelerator.unwrap_model(pipeline.mv_controlnet),
+        image_proj_module=accelerator.unwrap_model(pipeline.image_proj_model),
+    )
 
 
 def _log_trainable_breakdown(pipeline: CADMultiViewPipeline, logger: logging.Logger) -> None:
@@ -122,6 +140,7 @@ def main() -> None:
         random_i_final_view=data_cfg.random_i_final_view,
         require_all_views=data_cfg.require_all_views,
         part_ids_file=data_cfg.part_ids_file,
+        seed=train_cfg.seed,
     )
     train_dl = DataLoader(
         train_ds,
@@ -131,6 +150,8 @@ def main() -> None:
         collate_fn=collate_cad_batch,
         drop_last=data_cfg.drop_last,
         pin_memory=True,
+        # Spread the seed across workers so each picks distinct random views.
+        worker_init_fn=make_worker_init_fn(base_seed=train_cfg.seed),
     )
 
     # ---------------- optimizer ----------------------------------------------
@@ -211,14 +232,14 @@ def main() -> None:
                 ):
                     ckpt_dir = os.path.join(train_cfg.output_dir, f"step_{global_step:07d}")
                     logger.info("Saving trainables to %s", ckpt_dir)
-                    accelerator.unwrap_model(pipeline.unet)
-                    pipeline.save_trainables(ckpt_dir)
+                    _save_checkpoint(pipeline, accelerator, ckpt_dir)
 
     # Final save.
+    accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         final_dir = os.path.join(train_cfg.output_dir, "final")
         logger.info("Training done. Saving final checkpoint to %s", final_dir)
-        pipeline.save_trainables(final_dir)
+        _save_checkpoint(pipeline, accelerator, final_dir)
 
 
 if __name__ == "__main__":

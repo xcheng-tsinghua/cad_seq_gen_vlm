@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Union
 
 import torch
@@ -77,6 +77,14 @@ class MockMLLMPlanner(MLLMPlanner):
         #   return parse_plan(plan_str)
         _ = i_final
         return list(self.mock_plan)
+
+
+# ---------------------------------------------------------------------------
+def _save_grid_tensor(tensor: torch.Tensor, path: str) -> None:
+    """Save a ``(3, H, W)`` tensor in ``[-1, 1]`` as a PNG file."""
+    x = (tensor.detach().float().cpu() + 1.0) / 2.0
+    x = x.clamp(0, 1).permute(1, 2, 0).numpy()
+    Image.fromarray((x * 255).round().astype("uint8")).save(path)
 
 
 # ===========================================================================
@@ -198,14 +206,6 @@ class CADAutoregressiveGenerator:
             g_prev = self._to_grid_tensor(g_k_image).to(device, dtype=torch.float32)
 
         return generated_grids
-
-
-# ---------------------------------------------------------------------------
-def _save_grid_tensor(tensor: torch.Tensor, path: str) -> None:
-    """Save a (3, H, W) tensor in [-1, 1] as a PNG file."""
-    x = (tensor.detach().float().cpu() + 1.0) / 2.0
-    x = x.clamp(0, 1).permute(1, 2, 0).numpy()
-    Image.fromarray((x * 255).round().astype("uint8")).save(path)
 
 
 # ===========================================================================

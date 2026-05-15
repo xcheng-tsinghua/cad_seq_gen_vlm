@@ -128,6 +128,12 @@ class CADMultiViewDataset(Dataset):
         Optional seed for the per-item random view sampler. ``None`` =>
         sampler is seeded from system entropy (different across DataLoader
         workers).
+
+        IMPORTANT: when ``seed`` is set AND ``DataLoader(num_workers > 0)``,
+        each worker process inherits the same RNG state via pickling. Use
+        :func:`make_worker_init_fn` (below) and pass it as
+        ``DataLoader(worker_init_fn=...)`` to derive a distinct yet
+        deterministic seed per worker.
     """
 
     def __init__(
@@ -394,6 +400,39 @@ class CADMultiViewDataset(Dataset):
 
 
 # ===========================================================================
+def make_worker_init_fn(base_seed: int):
+    """Return a ``worker_init_fn`` that re-seeds the dataset's RNG per worker.
+
+    Without this, ``DataLoader(num_workers > 0)`` clones the dataset object
+    (with its already-constructed ``_rng``) into each worker process, so all
+    workers would pick the same ``I_final`` view for a given dataset index.
+
+    Usage::
+
+        DataLoader(
+            ds,
+            num_workers=4,
+            worker_init_fn=make_worker_init_fn(base_seed=42),
+            ...
+        )
+    """
+    def _init(worker_id: int) -> None:
+        # Lazily import to avoid touching torch in the parent process if it
+        # turns out we never spawn workers.
+        from torch.utils.data import get_worker_info  # type: ignore
+
+        info = get_worker_info()
+        if info is None:                          # single-process loading
+            return
+        ds = info.dataset
+        # Re-seed only if the dataset has our private RNG attribute; this
+        # avoids accidentally clobbering some other Dataset wrapper.
+        if hasattr(ds, "_rng"):
+            ds._rng = random.Random(base_seed + worker_id)
+
+    return _init
+
+
 def collate_cad_batch(batch: List[Dict[str, object]]) -> Dict[str, object]:
     """Stack tensors and keep prompts / ids as plain Python lists."""
     out: Dict[str, object] = {

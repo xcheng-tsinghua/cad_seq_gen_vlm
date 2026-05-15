@@ -23,7 +23,7 @@ plug into the SDXL UNet without further surgery.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -31,7 +31,7 @@ import torch.nn.functional as F
 from diffusers.models.controlnets.controlnet import ControlNetModel
 from einops import rearrange
 
-from config import NUM_ROWS, NUM_VIEWS
+from config import NUM_VIEWS
 
 
 # ===========================================================================
@@ -158,11 +158,13 @@ class MultiViewConditioningEmbedding(nn.Module):
         conditioning_embedding_channels: int = 320,
         block_out_channels: Tuple[int, ...] = (16, 32, 96, 256),
         num_heads: int = 8,
-        num_rows: int = NUM_ROWS,
         num_views: int = NUM_VIEWS,
     ) -> None:
         super().__init__()
-        self.num_rows = num_rows
+        # We intentionally do NOT store ``num_rows``: the row axis stays
+        # inside the per-view height (see forward), so the embedding doesn't
+        # need to know how many rows there are. Keeping the parameter would
+        # be unused state we'd have to keep in sync with config.
         self.num_views = num_views
 
         # Initial projection (no downsampling, matches diffusers).
@@ -219,16 +221,14 @@ class MultiViewConditioningEmbedding(nn.Module):
         for block, cv_attn in zip(self.blocks, self.cross_view_attns):
             x = block(x)
             # Re-split the view axis to apply cross-view attention. Note we
-            # keep the row axis *inside* the per-view height — the attention
+            # keep the row axis *inside* the per-view height -- the attention
             # block sees ``(B, V, C, num_rows*h, w)`` per the project spec.
             #   b c (num_rows h) (num_views w) -> b num_views c (num_rows h) w
-            b, c, H, W = x.shape
-            if W % self.num_views != 0:
+            if x.shape[-1] % self.num_views != 0:
                 raise RuntimeError(
                     f"Expected feature width divisible by NUM_VIEWS={self.num_views}, "
-                    f"got W={W}."
+                    f"got W={x.shape[-1]}."
                 )
-            w_per_view = W // self.num_views
             x_views = rearrange(
                 x,
                 "b c h (num_views w) -> b num_views c h w",
@@ -265,7 +265,6 @@ class MultiViewControlNetModel(ControlNetModel):
     def install_multiview_embedding(
         self,
         num_heads: int = 8,
-        num_rows: int = NUM_ROWS,
         num_views: int = NUM_VIEWS,
         block_out_channels: Optional[Tuple[int, ...]] = None,
     ) -> None:
@@ -283,8 +282,7 @@ class MultiViewControlNetModel(ControlNetModel):
         out_channels = old.conv_out.out_channels
 
         if block_out_channels is None:
-            # Try to recover from the stock blocks. They are stored as a
-            # ``nn.ModuleList`` of Conv2d pairs.
+            # Diffusers' default for ``conditioning_embedding_out_channels``.
             block_out_channels = (16, 32, 96, 256)
 
         new = MultiViewConditioningEmbedding(
@@ -292,7 +290,6 @@ class MultiViewControlNetModel(ControlNetModel):
             conditioning_embedding_channels=out_channels,
             block_out_channels=tuple(block_out_channels),
             num_heads=num_heads,
-            num_rows=num_rows,
             num_views=num_views,
         )
         # Place the new module on the same device / dtype as the old one.

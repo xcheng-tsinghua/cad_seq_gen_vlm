@@ -6,3 +6,9 @@ utils/__pycache__
 model_trained
 output
 vlm
+
+# HuggingFace model snapshots auto-downloaded by config.set_hf_cache_env().
+# Keep the folder in the repo (so it exists on fresh clones) but ignore
+# every file inside it.
+pretrained_lm/*
+!pretrained_lm/.gitkeep

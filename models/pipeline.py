@@ -20,6 +20,7 @@ Everything else is frozen.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -38,7 +39,7 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
-from config import ModelConfig, NUM_ROWS, NUM_VIEWS, TILE_H, TILE_W
+from config import ModelConfig, NUM_ROWS, NUM_VIEWS, PRETRAINED_DIR, TILE_H, TILE_W
 from .mv_controlnet import MultiViewControlNetModel
 
 
@@ -218,38 +219,57 @@ class CADMultiViewPipeline(nn.Module):
         self.weight_dtype = weight_dtype
 
         # ---- SDXL base components -----------------------------------------
+        # Every ``from_pretrained`` call routes through ``PRETRAINED_DIR`` so
+        # weights land inside the project's ``pretrained_lm/`` folder rather
+        # than ``~/.cache/huggingface``.
         # Tokenizers (two for SDXL) + text encoders.
         self.tokenizer_one = CLIPTokenizer.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="tokenizer"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="tokenizer",
+            cache_dir=PRETRAINED_DIR,
         )
         self.tokenizer_two = CLIPTokenizer.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="tokenizer_2"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="tokenizer_2",
+            cache_dir=PRETRAINED_DIR,
         )
         self.text_encoder_one = CLIPTextModel.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="text_encoder"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="text_encoder",
+            cache_dir=PRETRAINED_DIR,
         )
         self.text_encoder_two = CLIPTextModelWithProjection.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="text_encoder_2"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="text_encoder_2",
+            cache_dir=PRETRAINED_DIR,
         )
 
         self.vae = AutoencoderKL.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="vae"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="vae",
+            cache_dir=PRETRAINED_DIR,
         )
         self.unet = UNet2DConditionModel.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="unet"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="unet",
+            cache_dir=PRETRAINED_DIR,
         )
         # Noise scheduler used for training. Inference can swap this for a
         # DPM-Solver / Euler variant if desired.
         self.noise_scheduler = DDPMScheduler.from_pretrained(
-            model_cfg.pretrained_model_name_or_path, subfolder="scheduler"
+            model_cfg.pretrained_model_name_or_path,
+            subfolder="scheduler",
+            cache_dir=PRETRAINED_DIR,
         )
 
         # ---- CLIP-Vision for IP-Adapter ------------------------------------
         self.image_encoder = CLIPVisionModelWithProjection.from_pretrained(
-            model_cfg.clip_image_encoder_name_or_path
+            model_cfg.clip_image_encoder_name_or_path,
+            cache_dir=PRETRAINED_DIR,
         )
         self.clip_image_processor = CLIPImageProcessor.from_pretrained(
-            model_cfg.clip_image_encoder_name_or_path
+            model_cfg.clip_image_encoder_name_or_path,
+            cache_dir=PRETRAINED_DIR,
         )
 
         # ---- LoRA injection into UNet (PEFT) -------------------------------
@@ -265,10 +285,18 @@ class CADMultiViewPipeline(nn.Module):
         self.unet = get_peft_model(self.unet, lora_config)
 
         # ---- Multi-View ControlNet (init from UNet for compatible block shapes) --
+        # NOTE: ``diffusers.ControlNetModel.from_unet`` only accepts
+        # ``controlnet_conditioning_channel_order``, ``load_weights_from_unet``,
+        # and ``conditioning_channels``. Passing ``conditioning_embedding_out_channels``
+        # to it raises TypeError on diffusers >= 0.27. We therefore build a
+        # stock ControlNet first and replace its conditioning embedding via
+        # ``install_multiview_embedding`` -- that's where our 16/32/96/256
+        # block sizes (or whatever ``mv_cn_block_out_channels`` specifies)
+        # actually take effect.
+        base_unet = self.unet.base_model.model if hasattr(self.unet, "base_model") else self.unet
         self.mv_controlnet = MultiViewControlNetModel.from_unet(
-            self.unet.base_model.model if hasattr(self.unet, "base_model") else self.unet,
+            base_unet,
             conditioning_channels=3,
-            conditioning_embedding_out_channels=model_cfg.mv_cn_block_out_channels,
         )
         self.mv_controlnet.install_multiview_embedding(
             num_heads=model_cfg.mv_cn_num_attn_heads,
@@ -311,14 +339,19 @@ class CADMultiViewPipeline(nn.Module):
                 attn_procs[name] = AttnProcessor2_0()
                 continue
 
-            # Figure out `hidden_size` from the module hierarchy.
+            # Figure out `hidden_size` from the module hierarchy. Attention
+            # processor names look like ``<scope>.<block_id>.<...>.processor``
+            # for down/up blocks, or ``mid_block.<...>.processor``. We parse
+            # the integer block id robustly by splitting on '.'  (avoids the
+            # 1-char slice trick which silently mis-parses block ids >= 10).
+            parts = name.split(".")
             if name.startswith("mid_block"):
                 hidden_size = base_unet.config.block_out_channels[-1]
             elif name.startswith("up_blocks"):
-                block_id = int(name[len("up_blocks.")])
+                block_id = int(parts[1])
                 hidden_size = list(reversed(base_unet.config.block_out_channels))[block_id]
             elif name.startswith("down_blocks"):
-                block_id = int(name[len("down_blocks.")])
+                block_id = int(parts[1])
                 hidden_size = base_unet.config.block_out_channels[block_id]
             else:
                 raise ValueError(f"Unexpected attn processor location: {name}")
@@ -606,8 +639,7 @@ class CADMultiViewPipeline(nn.Module):
         # CLIP-Vision -> IP tokens for both branches:
         # for the negative branch we use a zero image embedding so the
         # adapter only fires for the positive branch.
-        image_embeds = self.encode_image_for_ip(i_final if isinstance(i_final, torch.Tensor)
-                                                else i_final)
+        image_embeds = self.encode_image_for_ip(i_final)
         ip_tokens_pos = self.image_proj_model(
             image_embeds.to(self.image_proj_model.proj.weight.dtype)
         )
@@ -669,26 +701,57 @@ class CADMultiViewPipeline(nn.Module):
         return CADPipelineOutput(images=pil_images, latents=latents)
 
     # ----------------------------------------------------------------- (de)serialization
-    def save_trainables(self, path: str) -> None:
-        """Save just the trainable params (LoRA + MV-CN + IP-Adapter) as a single file."""
-        import os
+    def save_trainables(
+        self,
+        path: str,
+        unet_module: Optional[nn.Module] = None,
+        mv_controlnet_module: Optional[nn.Module] = None,
+        image_proj_module: Optional[nn.Module] = None,
+    ) -> None:
+        """Save just the trainable params (LoRA + MV-CN + IP-Adapter).
+
+        Under ``accelerate``/DDP, ``pipeline.unet`` (etc.) are wrappers whose
+        ``named_parameters()`` keys carry a ``module.`` prefix. Pass the
+        unwrapped modules via the optional kwargs to strip that prefix --
+        otherwise the saved keys won't match :meth:`load_trainables`.
+
+        Typical caller in ``train.py``::
+
+            pipeline.save_trainables(
+                ckpt_dir,
+                unet_module=accelerator.unwrap_model(pipeline.unet),
+                mv_controlnet_module=accelerator.unwrap_model(pipeline.mv_controlnet),
+                image_proj_module=accelerator.unwrap_model(pipeline.image_proj_model),
+            )
+        """
         os.makedirs(path, exist_ok=True)
+
+        unet  = unet_module          if unet_module          is not None else self.unet
+        mvcn  = mv_controlnet_module if mv_controlnet_module is not None else self.mv_controlnet
+        iproj = image_proj_module    if image_proj_module    is not None else self.image_proj_model
+
         state: Dict[str, torch.Tensor] = {}
-        # LoRA params.
-        for n, p in self.unet.named_parameters():
+        # UNet: LoRA params + IP-Adapter to_k_ip/to_v_ip (anything trainable).
+        for n, p in unet.named_parameters():
             if p.requires_grad:
                 state[f"unet.{n}"] = p.detach().cpu()
-        # MV-ControlNet.
-        for n, p in self.mv_controlnet.named_parameters():
+        # MV-ControlNet (fully trainable).
+        for n, p in mvcn.named_parameters():
             state[f"mv_controlnet.{n}"] = p.detach().cpu()
-        # ImageProj.
-        for n, p in self.image_proj_model.named_parameters():
+        # ImageProj (fully trainable).
+        for n, p in iproj.named_parameters():
             state[f"image_proj.{n}"] = p.detach().cpu()
-        torch.save(state, f"{path}/trainables.pt")
+        torch.save(state, os.path.join(path, "trainables.pt"))
 
     def load_trainables(self, path: str, strict: bool = False) -> None:
-        """Inverse of :meth:`save_trainables`."""
-        state: Dict[str, torch.Tensor] = torch.load(f"{path}/trainables.pt", map_location="cpu")
+        """Inverse of :meth:`save_trainables`.
+
+        Loads into ``self.{unet, mv_controlnet, image_proj_model}`` -- the
+        UN-wrapped (pre-accelerate) modules. Call BEFORE ``accelerator.prepare``.
+        """
+        state: Dict[str, torch.Tensor] = torch.load(
+            os.path.join(path, "trainables.pt"), map_location="cpu",
+        )
         missing: List[str] = []
         for full, tensor in state.items():
             head, _, dot_name = full.partition(".")
