@@ -132,6 +132,20 @@ FINAL_SHAPE_FILENAME: str = "final_shape_frame.png"
 STEP_DIR_PREFIX: str = "roll_back_index_"
 PROMPT_FILENAME: str = "prompt.txt"
 
+# Per-step "AFTER operation" artefacts (added to each ``roll_back_index_N``
+# folder). Used by ``auto_label.py`` for dynamic best-view selection via
+# depth differencing, and potentially by future training signals.
+CURRENT_DEPTH_FILENAME: str = "current_depth_map.png"
+CURRENT_SNAPSHOT_FILENAME: str = "current_snapshot.png"
+CURRENT_SHAPE_FRAME_FILENAME: str = "current_shape_frame.png"
+# Symmetric alias for the BEFORE depth map (also declared as ROW_FILENAMES[0]).
+PREV_DEPTH_FILENAME: str = "prev_depth_map.png"
+
+# Ground-truth operation parameters sidecar. View-independent: only the
+# anchor view's copy is read at label time, even though data prep may
+# write it to every view folder.
+OPERATION_PARAM_FILENAME: str = "operation_param.json"
+
 # Default "anchor" view used to look up step-level metadata (prompts) that is
 # logically view-independent. Any of the 8 suffixes would work; we pick PPP.
 ANCHOR_VIEW_SUFFIX: str = "PPP"
