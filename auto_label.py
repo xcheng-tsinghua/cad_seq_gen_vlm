@@ -950,16 +950,14 @@ def _parse_args() -> LabelerConfig:
     p.add_argument("--min-pixels", type=int, default=256 * 28 * 28)
     p.add_argument("--max-pixels", type=int, default=1408 * 28 * 28,
                    help="Upper bound on collage pixel count after Qwen smart-resize.")
-    p.add_argument("--collage-cell-size", type=int, default=512,
-                   help="Per-cell pixel size of the 2x2 collage. Final collage = 2x2 * cell.")
     p.add_argument("--overwrite", action="store_true",
                    help="Re-generate even if prompt.txt already exists.")
     p.add_argument("--broadcast", action="store_true",
                    help="Copy each generated prompt.txt to the other 7 view folders.")
-    p.add_argument("--include-final-snapshot", action="store_true",
+    p.add_argument("--include-final-snapshot", action="store_false",
                    help="Append the part's final_snapshot.png as supplementary "
                         "context AFTER the 2x2 collage. Off by default.")
-    p.add_argument("--no-flash-attn", action="store_true",
+    p.add_argument("--no-flash-attn", action="store_false",
                    help="Disable flash-attention-2 (use vanilla SDPA).")
     p.add_argument("--max-parts", type=int, default=None,
                    help="Stop after this many parts (smoke testing).")
@@ -978,13 +976,11 @@ def _parse_args() -> LabelerConfig:
         max_new_tokens=args.max_new_tokens,
         min_pixels=args.min_pixels,
         max_pixels=args.max_pixels,
-        collage_cell_size=args.collage_cell_size,
         overwrite=args.overwrite,
         broadcast_to_all_views=args.broadcast,
         include_final_snapshot=args.include_final_snapshot,
         use_flash_attention=not args.no_flash_attn,
         max_parts=args.max_parts,
-        debug_collage_dir=args.debug_collage_dir,
         dry_run=args.dry_run,
         view_selection_mode=args.view_selection,
         view_diff_threshold=args.view_diff_threshold,
