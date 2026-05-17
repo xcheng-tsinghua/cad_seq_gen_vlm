@@ -921,7 +921,7 @@ def _parse_args() -> LabelerConfig:
     p = argparse.ArgumentParser(
         description="Auto-generate prompt.txt for CAD modeling steps with Qwen2.5-VL.",
     )
-    p.add_argument("--data-root", type=str, required=True,
+    p.add_argument("--data-root", type=str, default="/opt/data/private/data_set/onshape/cad_seq_img",
                    help="Root folder containing the <part>_<SUFFIX> directories.")
     p.add_argument("--view-suffix", type=str, default=ANCHOR_VIEW_SUFFIX,
                    choices=list(VIEW_SUFFIXES),
