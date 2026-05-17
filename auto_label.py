@@ -86,28 +86,34 @@ from config import (
 # Static prompts
 # ===========================================================================
 
-SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide a SINGLE composite image representing one incremental step in a CAD modeling sequence. The image is a 4-in-1 overlay that combines, on the same canvas:
-- A grayscale base representing the depth map of the part BEFORE this operation.
-- A semi-transparent YELLOW mask indicating the sketch plane used for this operation.
-- A semi-transparent CYAN mask indicating reference geometry/paths (if any).
-- A LOCAL feature wireframe showing ONLY the local entity created, modified, or removed in this exact step.
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide TWO images and a JSON block for one incremental step in a CAD modeling sequence:
+1. [Global Context]: The final rendered image of the complete CAD part.
+2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
+   - Grayscale base: depth map BEFORE this operation.
+   - Semi-transparent YELLOW mask: sketch plane used.
+   - Semi-transparent CYAN mask: reference geometry (e.g., sweep path, chanfer edges) (if any).
+   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
 
 CRITICAL WIREFRAME COLOR CODING:
 - Red: The reference 2D sketch used by this operation.
-- Green: Edges of the newly ADDED solid local entity.
-- Magenta: Edges of the REMOVED / CUT local entity.
-- Blue: The local entity termination face of this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
 
 GROUND-TRUTH OPERATION PARAMETERS (JSON):
-You will also receive a JSON block containing the true parameters for this operation (e.g., modeling_type, construct_type, is_symmetric). Use this JSON strictly to determine the topological operation intent (whether it is an addition or a cut, what the specific tool name is). 
-DO NOT output any specific numerical dimensions (such as depth=10 or radius=5). The geometric scale and proportions are implicitly embedded in the image and do not need to be quantified in text.
+Use the provided JSON to determine the exact operation type (e.g., Extrude, Revolve, Cut). DO NOT output any specific numerical dimensions (like depth=10).
 
-Analyze the visual inputs and the JSON, then write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes].'
+YOUR TASK:
+Analyze the inputs and write a single, concise sentence describing the operation. 
+You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+
+Format MUST strictly follow this structure: 
+'[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes], which corresponds to [the specific functional feature/location in the final rendered image].'
 
 For example:
-- 'Extrude: Based on the red circular sketch drawn on the yellow sketch plane, extruded a green solid cylinder up to the blue termination face.'
-- 'Sweep: Based on the red rectangular sketch on the yellow sketch plane and guided by the cyan reference path, generated a green solid sweep feature.'
-- 'Extruded Cut: Based on the red hexagonal sketch on the yellow sketch plane, cut a magenta negative space up to the blue termination face.'"""
+- 'Extrude: Based on the red circular sketch on the yellow-masked sketch plane, extruded a green solid cylinder up to the blue termination face, which corresponds to the main central mounting boss in the final part.'
+- 'Extruded Cut: Based on the red rectangular sketch on the yellow-masked sketch plane, cut a magenta negative space up to the blue termination face, which forms the sliding slot on the right side of the final model.'
+- 'Fillet: Generated a Magenta solid feature along the edges of the cyan-masked plane, which corresponds to the rounded corners on the base plate of the final part.'"""
 
 # Minimal user-side payload text. The system prompt already specifies the
 # layout, color coding, and required output format -- here we just nudge
@@ -827,7 +833,7 @@ def run(cfg: LabelerConfig) -> None:
             if params_text is None:
                 missing_params += 1
 
-        # Optional global reference image (off by default).
+        # Optional global reference image (on by default).
         final_snapshot: Optional[str] = None
         if cfg.include_final_snapshot:
             cand = os.path.join(
@@ -953,11 +959,11 @@ def _parse_args() -> LabelerConfig:
                    help="Upper bound on overlay pixel count after Qwen smart-resize.")
     p.add_argument("--overwrite", action="store_true",
                    help="Re-generate even if prompt.txt already exists.")
-    p.add_argument("--broadcast", action="store_true",
+    p.add_argument("--broadcast", action="store_false",
                    help="Copy each generated prompt.txt to the other 7 view folders.")
-    p.add_argument("--include-final-snapshot", action="store_true",
+    p.add_argument("--include-final-snapshot", action="store_false",
                    help="Append the part's final_snapshot.png as supplementary "
-                        "context AFTER the overlay. Off by default.")
+                        "context AFTER the overlay. ON by default.")
     p.add_argument("--no-flash-attn", action="store_true",
                    help="Disable flash-attention-2 (use vanilla SDPA).")
     p.add_argument("--max-parts", type=int, default=None,
