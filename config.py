@@ -3,25 +3,32 @@
 All shape-related constants live here so that `dataset.py`, the custom
 ControlNet, the pipeline and the training / inference scripts stay in sync.
 
-Layout of one modeling step (``G_k``):
+Layout of one modeling step (``G_k``)
+-------------------------------------
 
-    Rows (NUM_ROWS = 4)        -> components of the modeling step
-        0: Prev Depth Map
-        1: Sketch Plane Mask
-        2: Reference Mask
-        3: Result Wireframe
+The original 4-row design (prev_depth + sketch_mask + ref_mask + result_frame)
+has been collapsed: each (view, step) is now represented by a single
+**4-in-1 overlay** image (``overlayed_all.png``) that already composites all
+four signals onto one canvas. So the grid degenerates to a horizontal strip:
 
-    Columns (NUM_VIEWS = 8)   -> camera view angles
-        0: V3d_XposYposZpos
-        1: V3d_XposYposZneg
-        2: V3d_XposYnegZpos
-        3: V3d_XposYnegZneg
-        4: V3d_XnegYposZpos
-        5: V3d_XnegYposZneg
-        6: V3d_XnegYnegZpos
-        7: V3d_XnegYnegZneg
+    Rows (NUM_ROWS = 1)         -> single overlay channel
+        0: Overlayed Composite (overlayed_all.png)
 
-Therefore each grid tensor has shape ``(3, NUM_ROWS * TILE_H, NUM_VIEWS * TILE_W)``.
+    Columns (NUM_VIEWS = 8)     -> camera view angles
+        0: V3d_XposYposZpos     (PPP)
+        1: V3d_XposYposZneg     (PPN)
+        2: V3d_XposYnegZpos     (PNP)
+        3: V3d_XposYnegZneg     (PNN)
+        4: V3d_XnegYposZpos     (NPP)
+        5: V3d_XnegYposZneg     (NPN)
+        6: V3d_XnegYnegZpos     (NNP)
+        7: V3d_XnegYnegZneg     (NNN)
+
+Each grid tensor therefore has shape ``(3, NUM_ROWS*TILE_H, NUM_VIEWS*TILE_W)``,
+i.e. ``(3, TILE_H, 8*TILE_W)`` -- a 1:8 horizontal strip. SDXL handles this
+aspect ratio via its standard micro-conditioning; the UNet, ControlNet and
+VAE are all unaffected because every shape constant flows through
+``NUM_ROWS`` / ``NUM_VIEWS``.
 """
 
 from __future__ import annotations
@@ -78,26 +85,22 @@ def set_hf_cache_env(force: bool = False) -> str:
 set_hf_cache_env()
 
 
-# Row / view layout of the 4 x 8 grid =====================================
-NUM_ROWS: int = 4
+# Row / view layout of the 1 x 8 grid =====================================
+NUM_ROWS: int = 1
 NUM_VIEWS: int = 8
 
+# Semantic row labels and on-disk filenames. With the 4-in-1 overlay we now
+# have a SINGLE row, but we keep these tuples (length-1) so consumers that
+# iterate over ``zip(ROW_NAMES, ROW_FILENAMES)`` (e.g. ``dataset.py``) still
+# work with no special-casing for NUM_ROWS=1.
 ROW_NAMES: Tuple[str, ...] = (
-    "prev_depth",
-    "sketch_plane_mask",
-    "ref_mask",
-    "result_wireframe",
+    "overlayed_composite",
 )
-
-# Filenames on disk corresponding 1-to-1 with ``ROW_NAMES``. Decoupled from
-# the semantic labels so that, e.g., switching dataset versions only requires
-# touching this tuple.
 ROW_FILENAMES: Tuple[str, ...] = (
-    "prev_depth_map.png",
-    "sketch_plane_mask.png",
-    "reference_mask.png",
-    "result_frame.png",
+    "overlayed_all.png",
 )
+# Direct alias for clarity in modules that don't want the row indirection.
+OVERLAYED_FILENAME: str = ROW_FILENAMES[0]
 
 VIEW_NAMES: Tuple[str, ...] = (
     "V3d_XposYposZpos",

@@ -1,20 +1,29 @@
 """Pseudo-label generator for CAD modeling steps using Qwen2.5-VL.
 
 For every CAD part under ``--data-root``, this script walks the canonical
-view folder (default ``<part>_PPP``), reads the 4 component PNGs of each
-``roll_back_index_N`` step, **composes them into a single 2 x 2 collage**
-matching the layout described in :data:`SYSTEM_PROMPT`, feeds the collage
-to **Qwen2.5-VL**, and writes the resulting one-line description to
+view folder (default ``<part>_PPP``), reads the **4-in-1 overlay**
+``overlayed_all.png`` of each ``roll_back_index_N`` step, optionally loads
+``operation_param.json`` as authoritative context, feeds them to
+**Qwen2.5-VL**, and writes the resulting one-line description to
 ``prompt.txt`` inside that step folder.
 
-Critical: ``result_frame.png`` (bottom-right cell of the collage) shows the
-**LOCAL feature delta** of the current step only -- not the wireframe of
-the entire part. Color coding inside that image:
+The dataset has been simplified: the original 4 component PNGs
+(``prev_depth_map.png``, ``sketch_plane_mask.png``, ``reference_mask.png``,
+``result_frame.png``) are now pre-composited into a single ``overlayed_all.png``
+by the data-prep stage, so this script no longer builds a 2 x 2 collage --
+it just opens the overlay and forwards it to Qwen2.5-VL.
+
+Color coding INSIDE the overlay (carried over from the wireframe layer of
+``result_frame.png``):
 
     Red     -- the reference 2D sketch used by this step
     Green   -- edges of the newly ADDED solid entity
     Magenta -- edges of the REMOVED / CUT entity
     Blue    -- the termination face of the operation
+
+Best-view selection still uses the depth-map differencing of
+``prev_depth_map.png`` vs ``current_depth_map.png`` -- those files are kept
+in every view folder for exactly this purpose.
 
 The output location matches :data:`config.PROMPT_FILENAME`, which is where
 :class:`dataset.CADMultiViewDataset._load_prompt` already looks for prompts,
@@ -24,19 +33,19 @@ Usage
 -----
 ::
 
-    # 1.   Install model deps (one-time):
-    #        pip install -U transformers>=4.49.0 qwen-vl-utils>=0.0.10
-    # 2.   Run the labeler:
+    pip install -U transformers>=4.49.0 qwen-vl-utils>=0.0.10
     python auto_label.py --data-root ./data
     # Optional flags:
     #   --model Qwen/Qwen2.5-VL-3B-Instruct   # smaller, faster
-    #   --view-suffix PPP                      # which canonical view to read
+    #   --view-selection auto|fixed            # pick best view per step (default: auto)
+    #   --view-suffix PPP                      # fallback view in auto / forced view in fixed
+    #   --no-operation-params                  # disable JSON grounding (default: ON)
     #   --overwrite                            # re-label even if prompt.txt exists
     #   --broadcast                            # copy prompt.txt to all 8 views
     #   --include-final-snapshot               # add part's final image as extra context
     #   --max-parts 10                         # quick smoke test
     #   --dry-run                              # print plan, don't load the MLLM
-    #   --debug-collage-dir ./out/collages     # dump every collage as PNG for inspection
+    #   --debug-overlay-dir ./out/overlays     # save a copy of every input image
 
 Resume / safety
 ---------------
@@ -64,10 +73,10 @@ from config import (
     CURRENT_DEPTH_FILENAME,
     I_FINAL_FILENAME,
     OPERATION_PARAM_FILENAME,
+    OVERLAYED_FILENAME,
     PRETRAINED_DIR,
     PREV_DEPTH_FILENAME,
     PROMPT_FILENAME,
-    ROW_FILENAMES,
     STEP_DIR_PREFIX,
     VIEW_SUFFIXES,
 )
@@ -77,42 +86,29 @@ from config import (
 # Static prompts
 # ===========================================================================
 
-# Position labels of the 2 x 2 collage cells. Order corresponds 1-to-1 with
-# ``config.ROW_FILENAMES`` (i.e. the canonical row order used everywhere
-# else in the project).
-#   index 0 -> Top-Left      = prev_depth_map.png
-#   index 1 -> Top-Right     = sketch_plane_mask.png
-#   index 2 -> Bottom-Left   = reference_mask.png
-#   index 3 -> Bottom-Right  = result_frame.png   (LOCAL feature wireframe)
-COLLAGE_POSITIONS: Tuple[str, ...] = (
-    "top-left", "top-right", "bottom-left", "bottom-right",
-)
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide a SINGLE composite image representing one incremental step in a CAD modeling sequence. The image is a 4-in-1 overlay that combines, on the same canvas:
+- A grayscale rendering / depth visualisation of the part BEFORE this operation.
+- A coloured mask indicating the sketch plane used by this operation.
+- A coloured mask indicating reference geometry used by this operation (if any).
+- A LOCAL feature wireframe of the entity created, modified, or removed in this exact step.
 
-SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide a 2x2 collaged image representing a SINGLE incremental step in a CAD modeling sequence. 
-- Top-Left: Depth map of the entire model BEFORE this operation. 
-- Top-Right: Mask indicating the sketch plane for this operation. 
-- Bottom-Left: Mask indicating reference geometry (if any). 
-- Bottom-Right: The LOCAL feature wireframe. 
-
-CRITICAL INSTRUCTION FOR BOTTOM-RIGHT IMAGE:
-This image is NOT the wireframe of the entire CAD part. It shows ONLY the specific entity created, modified, or removed in this exact step. 
-Color coding for this local feature:
-- Red: The reference sketch used for this specific operation.
-- Green: Edges of the newly ADDED solid entity in this step.
-- Magenta: Edges of the REMOVED/CUT entity in this step.
-- Blue: The termination face of this specific operation.
+CRITICAL: the wireframe shows ONLY the entity for THIS step, not the whole part. Color coding for that wireframe layer:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
 
 GROUND-TRUTH OPERATION PARAMETERS (JSON):
-If a JSON block titled "GROUND-TRUTH OPERATION PARAMETERS" is provided after the image, treat it as the **authoritative source of truth** for the operation type, sketch shape, dimensions, direction, axes, and any boolean flags. The image is for visual reference only -- when the image is ambiguous or partially occluded, prefer the JSON values. Your output sentence MUST be factually consistent with the JSON: quote the correct operation type, sketch geometry, and (when present) the relevant dimensions in concise form (e.g. "radius=5mm", "depth=10mm"). If no JSON is provided, infer everything from the images.
+If a JSON block titled "GROUND-TRUTH OPERATION PARAMETERS" is provided after the image, treat it as the **authoritative source of truth** for the operation type, sketch shape, dimensions, direction, axes, and any boolean flags. The image is for visual confirmation only -- when the image is ambiguous or the feature partially occluded, prefer the JSON values. Your output sentence MUST be factually consistent with the JSON: quote the correct operation type, sketch geometry, and (when present) the relevant dimensions in concise form (e.g. "radius=5mm", "depth=10mm"). If no JSON is provided, infer everything from the image alone.
 
-Analyze the images and write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch/reference], generated [entity changes].' 
+Analyze the inputs and write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch/reference], generated [entity changes].'
 For example: 'Extrusion: Based on the red circular sketch (radius=5mm), extruded a green solid cylinder of depth=10mm up to the blue termination face.'"""
 
 # Minimal user-side payload text. The system prompt already specifies the
 # layout, color coding, and required output format -- here we just nudge
 # the model to actually produce that single sentence.
 USER_INSTRUCTION = (
-    "Analyze the 2x2 collaged image above and respond with ONE sentence "
+    "Analyze the overlay image above and respond with ONE sentence "
     "in the required format. No preamble, no markdown, no extra commentary."
 )
 
@@ -145,24 +141,25 @@ class LabelerConfig:
     # The new format is more verbose ("Extrusion: Based on ..., generated ...");
     # 96 tokens leaves headroom while still capping cost.
     max_new_tokens: int = 96
-    # Qwen processor "dynamic resolution" knobs. The single 2 x 2 collage
-    # is ~1 MP at default cell_size=512, so max_pixels must >= ~1.05 MP.
+    # Qwen processor "dynamic resolution" knobs. The 4-in-1 overlay is a
+    # single image whose native size depends on the data-prep stage. We
+    # leave plenty of room (max_pixels ~1.1 MP) to avoid downscaling
+    # high-resolution overlays.
     min_pixels: int = 256 * 28 * 28        # ~200 k pixels
-    max_pixels: int = 1408 * 28 * 28       # ~1.10 M pixels (fits a 1024x1024 collage)
-    # Per-cell pixel size of the 2 x 2 collage. Final collage = (2*cs, 2*cs).
-    collage_cell_size: int = 512
+    max_pixels: int = 1408 * 28 * 28       # ~1.10 M pixels
     overwrite: bool = False
     broadcast_to_all_views: bool = False
-    # Default OFF: the new SYSTEM_PROMPT is structured around the SINGLE
-    # 2 x 2 collage; adding a 5th image would contradict it. Pass
+    # Default OFF: the SYSTEM_PROMPT is structured around the SINGLE overlay
+    # image; adding a 2nd image would contradict it. Pass
     # ``--include-final-snapshot`` to attach it as supplementary context.
     include_final_snapshot: bool = False
     max_parts: Optional[int] = None
     log_every: int = 25
     use_flash_attention: bool = True
     dry_run: bool = False
-    # Optional: dump every collage as PNG to this folder for visual debugging.
-    debug_collage_dir: Optional[str] = None
+    # Optional: copy every overlay we send to Qwen into this folder (under
+    # a deterministic name) for offline visual debugging.
+    debug_overlay_dir: Optional[str] = None
 
     # ---- Dynamic best-view selection ----
     # "auto"  -> use depth-map differencing to pick the least-occluded view
@@ -255,48 +252,17 @@ class Qwen25VLLabeler:
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
-    def _build_collage_image(
-        component_paths: List[Optional[str]],
-        cell_size: int = 512,
-    ) -> "object":
-        """Compose 4 component PNGs into a single 2 x 2 collage PIL image.
+    def _load_overlay_image(path: Optional[str]):
+        """Load ``overlayed_all.png`` (or ``None``) into a PIL ``RGB`` image.
 
-        Layout (must match :data:`SYSTEM_PROMPT` literally!)::
-
-            +-------------------+-------------------+
-            | TL: prev_depth    | TR: sketch_plane  |
-            |     _map.png      |     _mask.png     |
-            +-------------------+-------------------+
-            | BL: reference     | BR: result_frame  |
-            |     _mask.png     |     .png (LOCAL)  |
-            +-------------------+-------------------+
-
-        Missing files (``None`` entries) become solid black cells so the
-        spatial layout the system prompt references is always preserved.
+        When ``path`` is ``None`` or missing we synthesise a tiny black
+        placeholder so the model still sees *something* and we can log a
+        warning rather than crash mid-batch.
         """
-        from PIL import Image  # imported lazily so --dry-run stays light
-
-        if len(component_paths) != 4:
-            raise ValueError(
-                f"_build_collage_image expects exactly 4 paths, got {len(component_paths)}."
-            )
-
-        cells = []
-        for path in component_paths:
-            if path is not None and os.path.isfile(path):
-                img = Image.open(path).convert("RGB")
-                # Resize to the canonical cell size with high-quality resampling.
-                img = img.resize((cell_size, cell_size), Image.Resampling.LANCZOS)
-            else:
-                img = Image.new("RGB", (cell_size, cell_size), color=(0, 0, 0))
-            cells.append(img)
-
-        canvas = Image.new("RGB", (cell_size * 2, cell_size * 2), color=(0, 0, 0))
-        canvas.paste(cells[0], (0, 0))                            # top-left
-        canvas.paste(cells[1], (cell_size, 0))                    # top-right
-        canvas.paste(cells[2], (0, cell_size))                    # bottom-left
-        canvas.paste(cells[3], (cell_size, cell_size))            # bottom-right
-        return canvas
+        from PIL import Image  # lazy: keep --dry-run light
+        if path is not None and os.path.isfile(path):
+            return Image.open(path).convert("RGB")
+        return Image.new("RGB", (256, 256), color=(0, 0, 0))
 
     @staticmethod
     def _file_uri(abs_path: str) -> str:
@@ -333,35 +299,34 @@ class Qwen25VLLabeler:
     # ------------------------------------------------------------------ inference
     def describe_step(
         self,
-        component_paths: List[Optional[str]],
+        overlay_path: Optional[str],
         final_snapshot_path: Optional[str] = None,
-        debug_collage_save_path: Optional[str] = None,
+        debug_overlay_save_path: Optional[str] = None,
         params_json_text: Optional[str] = None,
     ) -> str:
         """Run one MLLM forward pass for a single modeling step.
 
         Parameters
         ----------
-        component_paths:
-            Exactly 4 paths in canonical row order
-            (prev_depth_map, sketch_plane_mask, reference_mask, result_frame).
-            ``None`` is allowed for any missing component.
+        overlay_path:
+            Absolute path to the step's ``overlayed_all.png`` (the 4-in-1
+            composite produced by data prep). ``None`` => fall back to a
+            black placeholder; the call will still complete but the result
+            is meaningless. The caller is expected to log this case.
         final_snapshot_path:
             Optional path to the part's ``final_snapshot.png``. If provided
-            it is shown AFTER the collage as supplementary context with an
+            it is shown AFTER the overlay as supplementary context with an
             explicit text label so the model does not confuse it with the
-            primary input. **Off by default** -- the system prompt is
-            written for a single 2 x 2 collage.
-        debug_collage_save_path:
-            If set, save the assembled collage to this path (useful for
-            eyeballing what the model actually sees).
+            primary input. **Off by default**.
+        debug_overlay_save_path:
+            If set, copy the overlay we send to Qwen to this path. Useful
+            for eyeballing what the model actually sees, especially when
+            best-view selection picked a non-PPP view.
         params_json_text:
             Optional pretty-printed JSON string of ground-truth operation
-            parameters. When provided, it is injected into the user turn as
-            an authoritative text block right before the final instruction,
-            wrapped in a markdown fenced code block so the model can parse
-            it cleanly. The system prompt already tells the model how to
-            use this data.
+            parameters. Injected into the user turn as an authoritative
+            text block right before the final instruction, wrapped in a
+            fenced markdown code block so the model can parse it cleanly.
 
         Returns
         -------
@@ -371,27 +336,25 @@ class Qwen25VLLabeler:
         """
         torch = self._torch
 
-        # ---- 1) Build the 2 x 2 collage and stash for reuse ----
-        collage = self._build_collage_image(
-            component_paths, cell_size=self.cfg.collage_cell_size
-        )
-        if debug_collage_save_path is not None:
-            parent = os.path.dirname(debug_collage_save_path)
+        # ---- 1) Load the overlay PNG ----
+        overlay = self._load_overlay_image(overlay_path)
+        if debug_overlay_save_path is not None:
+            parent = os.path.dirname(debug_overlay_save_path)
             if parent:
                 os.makedirs(parent, exist_ok=True)
-            collage.save(debug_collage_save_path)
+            overlay.save(debug_overlay_save_path)
 
         # ---- 2) Compose the chat messages ----
         # qwen-vl-utils handles PIL images in the "image" field directly.
         user_content: List[dict] = [
-            {"type": "image", "image": collage},
+            {"type": "image", "image": overlay},
         ]
         if final_snapshot_path is not None and os.path.isfile(final_snapshot_path):
             user_content.append({
                 "type": "text",
                 "text": (
-                    "Supplementary global context: the part's final shape (NOT "
-                    "part of the 2x2 collage above)."
+                    "Supplementary global context: the part's final shape "
+                    "(NOT part of the overlay above)."
                 ),
             })
             user_content.append({"type": "image", "image": self._file_uri(final_snapshot_path)})
@@ -667,22 +630,10 @@ def discover_step_indices(view_dir: str) -> List[int]:
     return indices
 
 
-def collect_step_images(step_dir: str) -> List[Optional[str]]:
-    """Return 4 absolute paths in canonical row order, with ``None`` for missing files.
-
-    Order matches :data:`config.ROW_FILENAMES`, which in turn maps 1-to-1 to
-    the 2 x 2 collage cell layout:
-
-        [0] -> top-left      (prev_depth_map.png)
-        [1] -> top-right     (sketch_plane_mask.png)
-        [2] -> bottom-left   (reference_mask.png)
-        [3] -> bottom-right  (result_frame.png -- LOCAL feature wireframe)
-    """
-    out: List[Optional[str]] = []
-    for filename in ROW_FILENAMES:
-        path = os.path.join(step_dir, filename)
-        out.append(os.path.abspath(path) if os.path.isfile(path) else None)
-    return out
+def collect_step_overlay(step_dir: str) -> Optional[str]:
+    """Return absolute path to ``overlayed_all.png`` in this step folder, or ``None``."""
+    path = os.path.join(step_dir, OVERLAYED_FILENAME)
+    return os.path.abspath(path) if os.path.isfile(path) else None
 
 
 def maybe_broadcast(
@@ -850,17 +801,14 @@ def run(cfg: LabelerConfig) -> None:
         analysis_step_dir = os.path.join(
             cfg.data_root, f"{part_id}_{analysis_view}", f"{STEP_DIR_PREFIX}{idx}",
         )
-        component_paths = collect_step_images(analysis_step_dir)
-        if all(p is None for p in component_paths):
-            logger.warning("No component images in %s; skipping.", analysis_step_dir)
+        overlay_path = collect_step_overlay(analysis_step_dir)
+        if overlay_path is None:
+            logger.warning(
+                "Missing %s in %s -- skipping (model would only see a black image).",
+                OVERLAYED_FILENAME, analysis_step_dir,
+            )
             failures += 1
             continue
-        if component_paths[3] is None:
-            logger.warning(
-                "Missing result_frame.png for %s/%s/step_%d -- collage "
-                "bottom-right will be blank; output may be unreliable.",
-                part_id, analysis_view, idx,
-            )
 
         # ---- Load ground-truth operation parameters (view-invariant) ----
         params_text: Optional[str] = None
@@ -883,17 +831,17 @@ def run(cfg: LabelerConfig) -> None:
                 final_snapshot = cand
 
         debug_save: Optional[str] = None
-        if cfg.debug_collage_dir:
+        if cfg.debug_overlay_dir:
             debug_save = os.path.join(
-                cfg.debug_collage_dir,
+                cfg.debug_overlay_dir,
                 f"{part_id}_{analysis_view}__step_{idx:04d}.png",
             )
 
         try:
             description = labeler.describe_step(
-                component_paths,
+                overlay_path=overlay_path,
                 final_snapshot_path=final_snapshot,
-                debug_collage_save_path=debug_save,
+                debug_overlay_save_path=debug_save,
                 params_json_text=params_text,
             )
         except Exception as exc:

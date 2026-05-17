@@ -7,14 +7,13 @@ Expected on-disk layout
 data_root/
 ├── <CAD_PART_ID>_PPP/                  # view = V3d_XposYposZpos
 │   ├── roll_back_index_1/              # modeling step #1 (indices may have gaps)
-│   │   ├── prev_depth_map.png
-│   │   ├── sketch_plane_mask.png
-│   │   ├── reference_mask.png
-│   │   ├── result_frame.png
-│   │   └── prompt.txt                  # optional: natural-language command
+│   │   ├── prev_depth_map.png          # depth BEFORE op (best-view selection)
+│   │   ├── current_depth_map.png       # depth AFTER op (best-view selection)
+│   │   ├── operation_param.json        # ground-truth op parameters (anchor only)
+│   │   ├── overlayed_all.png           # 4-in-1 composite -- THIS is the trainer input
+│   │   └── prompt.txt                  # optional: natural-language command (anchor only)
 │   ├── roll_back_index_3/              # next available step (note: jumps allowed)
 │   │   └── ...
-│   ├── final_shape_frame.png
 │   └── final_snapshot.png              # candidate `I_final` for this view
 ├── <CAD_PART_ID>_PPN/                  # view = V3d_XposYposZneg
 │   └── ... (same structure)
@@ -23,15 +22,19 @@ data_root/
 └── ...
 ```
 
+The grid this dataset returns is therefore a 1 x NUM_VIEWS strip of
+``overlayed_all.png`` images (one per camera angle), with shape
+``(3, TILE_H, NUM_VIEWS*TILE_W)``.
+
 Key contracts
 ~~~~~~~~~~~~~
 
 * For every CAD part, **all 8 view suffixes must be present** (configurable
   via ``DataConfig.require_all_views``). The set of available roll-back
   indices is read from the anchor view (``ANCHOR_VIEW_SUFFIX``); we *assume*
-  the same set of steps exists in every view folder. If a per-view file is
-  missing at ``__getitem__`` time, we raise ``FileNotFoundError`` with a
-  precise path.
+  the same set of steps exists in every view folder. If ``overlayed_all.png``
+  is missing for a view at ``__getitem__`` time, we raise ``FileNotFoundError``
+  with a precise path.
 * ``roll_back_index_N`` values are sorted numerically. "Previous step" =
   the immediately preceding entry in that sorted list (not necessarily
   ``N - 1``). The first sorted index yields an all-zero ``G_prev``.
@@ -107,7 +110,7 @@ class CADMultiViewDataset(Dataset):
     data_root:
         Root folder containing the ``<CAD_PART_ID>_<SUFFIX>`` directories.
     tile_size:
-        ``(H, W)`` of a single sub-image in the 4 x 8 grid.
+        ``(H, W)`` of a single sub-image in the 1 x NUM_VIEWS grid.
     i_final_size:
         ``(H, W)`` of the conditioning image.
     random_i_final_view:
@@ -277,16 +280,18 @@ class CADMultiViewDataset(Dataset):
         )
 
     def _load_step_grid(self, part_id: str, roll_back_index: int) -> torch.Tensor:
-        """Load all 32 sub-images of one step (8 views x 4 rows) and tile them.
+        """Load the 1 x NUM_VIEWS strip of overlay images for one step.
+
+        Iterates over ``ROW_FILENAMES`` (currently a single entry,
+        ``overlayed_all.png``) so this code keeps working unchanged if the
+        dataset later grows back to multi-row tiles.
 
         Returns
         -------
         torch.Tensor
             Shape ``(3, NUM_ROWS * tile_h, NUM_VIEWS * tile_w)`` in ``[-1, 1]``.
         """
-        # Build a (NUM_ROWS, NUM_VIEWS, 3, h, w) tensor first, then tile.
-        # We iterate row-major to match einops' "r v c h w -> c (r h) (v w)".
-        per_row: List[List[torch.Tensor]] = []
+        per_row: List[torch.Tensor] = []
         for row_idx, row_filename in enumerate(ROW_FILENAMES):
             per_view: List[torch.Tensor] = []
             for view_suffix in VIEW_SUFFIXES:
@@ -303,11 +308,9 @@ class CADMultiViewDataset(Dataset):
                 per_view.append(self._tile_tx(img))                  # (3, h, w)
             per_row.append(torch.stack(per_view, dim=0))             # (NUM_VIEWS, 3, h, w)
 
-        # (NUM_ROWS, NUM_VIEWS, 3, h, w)
+        # (NUM_ROWS, NUM_VIEWS, 3, h, w) -> (3, NUM_ROWS*h, NUM_VIEWS*w)
         grid_5d = torch.stack(per_row, dim=0)
-        # r v c h w -> c (r h) (v w)
-        grid = rearrange(grid_5d, "r v c h w -> c (r h) (v w)")
-        return grid
+        return rearrange(grid_5d, "r v c h w -> c (r h) (v w)")
 
     def _zero_grid(self) -> torch.Tensor:
         """All-zero placeholder grid for the first sorted step."""
