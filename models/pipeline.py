@@ -559,7 +559,7 @@ class CADMultiViewPipeline(nn.Module):
         # ControlNet expects the control image at the *latent* resolution? No:
         # diffusers' ControlNet handles arbitrary input via its
         # `controlnet_cond_embedding` (which is exactly what we replaced).
-        # We feed the raw 4x8 tiled grid.
+        # We feed the raw 1x8 tiled strip of overlay images (g_prev).
         added_cond_kwargs = self._build_added_cond_kwargs(
             batch_size=b,
             pooled_prompt_embeds=pooled_prompt_embeds,

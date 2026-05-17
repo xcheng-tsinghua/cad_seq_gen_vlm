@@ -190,8 +190,9 @@ class Qwen25VLLabeler:
     """Thin wrapper around the HF Qwen2.5-VL model.
 
     Loads model + processor once, then exposes :meth:`describe_step` which
-    composes a 2 x 2 collage of the 4 step components and returns a single
-    cleaned-up string describing the modeling operation.
+    feeds a single ``overlayed_all.png`` (the 4-in-1 composite produced by
+    data prep) plus optional ground-truth JSON parameters to Qwen2.5-VL,
+    and returns a cleaned-up one-line description of the modeling operation.
     """
 
     def __init__(self, cfg: LabelerConfig) -> None:
@@ -949,20 +950,22 @@ def _parse_args() -> LabelerConfig:
                    help="Max generated tokens (the new format is more verbose).")
     p.add_argument("--min-pixels", type=int, default=256 * 28 * 28)
     p.add_argument("--max-pixels", type=int, default=1408 * 28 * 28,
-                   help="Upper bound on collage pixel count after Qwen smart-resize.")
+                   help="Upper bound on overlay pixel count after Qwen smart-resize.")
     p.add_argument("--overwrite", action="store_true",
                    help="Re-generate even if prompt.txt already exists.")
     p.add_argument("--broadcast", action="store_true",
                    help="Copy each generated prompt.txt to the other 7 view folders.")
-    p.add_argument("--include-final-snapshot", action="store_false",
+    p.add_argument("--include-final-snapshot", action="store_true",
                    help="Append the part's final_snapshot.png as supplementary "
-                        "context AFTER the 2x2 collage. Off by default.")
-    p.add_argument("--no-flash-attn", action="store_false",
+                        "context AFTER the overlay. Off by default.")
+    p.add_argument("--no-flash-attn", action="store_true",
                    help="Disable flash-attention-2 (use vanilla SDPA).")
     p.add_argument("--max-parts", type=int, default=None,
                    help="Stop after this many parts (smoke testing).")
-    p.add_argument("--debug-collage-dir", type=str, default=None,
-                   help="If set, save every collage as PNG here for visual inspection.")
+    p.add_argument("--debug-overlay-dir", type=str, default=None,
+                   help="If set, save a copy of every overlay sent to Qwen "
+                        "(named '<part>_<view>__step_NNNN.png') under this "
+                        "folder for visual inspection.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the plan and exit; do not load the MLLM.")
     args = p.parse_args()
@@ -981,6 +984,7 @@ def _parse_args() -> LabelerConfig:
         include_final_snapshot=args.include_final_snapshot,
         use_flash_attention=not args.no_flash_attn,
         max_parts=args.max_parts,
+        debug_overlay_dir=args.debug_overlay_dir,
         dry_run=args.dry_run,
         view_selection_mode=args.view_selection,
         view_diff_threshold=args.view_diff_threshold,

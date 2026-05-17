@@ -8,13 +8,15 @@ intermediate feature space. Everything *downstream* (down/mid/up blocks)
 is a deep-copy of the frozen UNet and we do not want to touch those blocks
 (they are huge, and rewriting them would lose pretrained weights).
 
-The 4 x 8 tiled grid only makes geometric sense if features in column ``v``
-can attend to features in column ``v'``. So we replace just the small
-conditioning CNN with a Conv-Attention-Conv stack that:
+The ``NUM_ROWS x NUM_VIEWS`` tiled grid (currently ``1 x 8`` -- one
+``overlayed_all.png`` per camera angle) only makes geometric sense if
+features in column ``v`` can attend to features in column ``v'``. So we
+replace just the small conditioning CNN with a Conv-Attention-Conv stack
+that:
 
     1) Convs the image normally (spatial inductive bias).
-    2) Reshapes ``(B, C, 4H, 8W) -> (B, 8, C, 4H, W)`` and runs Self-Attn
-       over the view axis to enforce 3D consistency.
+    2) Reshapes ``(B, C, NUM_ROWS*H, NUM_VIEWS*W) -> (B, NUM_VIEWS, C, NUM_ROWS*H, W)``
+       and runs Self-Attn over the view axis to enforce 3D consistency.
     3) Reshapes back and continues with standard 2D convs.
 
 The rest of ControlNet stays exactly as in ``diffusers``, so the residuals

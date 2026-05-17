@@ -153,7 +153,7 @@ class CADAutoregressiveGenerator:
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
         ])
-        return tx(image).unsqueeze(0)  # (1, 3, 4H, 8W)
+        return tx(image).unsqueeze(0)  # (1, 3, NUM_ROWS*H, NUM_VIEWS*W)
 
     # ----------------------------------------------------------------- main entry
     def run(
