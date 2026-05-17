@@ -87,22 +87,27 @@ from config import (
 # ===========================================================================
 
 SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide a SINGLE composite image representing one incremental step in a CAD modeling sequence. The image is a 4-in-1 overlay that combines, on the same canvas:
-- A grayscale rendering / depth visualisation of the part BEFORE this operation.
-- A coloured mask indicating the sketch plane used by this operation.
-- A coloured mask indicating reference geometry used by this operation (if any).
-- A LOCAL feature wireframe of the entity created, modified, or removed in this exact step.
+- A grayscale base representing the depth map of the part BEFORE this operation.
+- A semi-transparent YELLOW mask indicating the sketch plane used for this operation.
+- A semi-transparent CYAN mask indicating reference geometry/paths (if any).
+- A LOCAL feature wireframe showing ONLY the local entity created, modified, or removed in this exact step.
 
-CRITICAL: the wireframe shows ONLY the entity for THIS step, not the whole part. Color coding for that wireframe layer:
+CRITICAL WIREFRAME COLOR CODING:
 - Red: The reference 2D sketch used by this operation.
-- Green: Edges of the newly ADDED solid entity.
-- Magenta: Edges of the REMOVED / CUT entity.
-- Blue: The termination face of this operation.
+- Green: Edges of the newly ADDED solid local entity.
+- Magenta: Edges of the REMOVED / CUT local entity.
+- Blue: The local entity termination face of this operation.
 
 GROUND-TRUTH OPERATION PARAMETERS (JSON):
-If a JSON block titled "GROUND-TRUTH OPERATION PARAMETERS" is provided after the image, treat it as the **authoritative source of truth** for the operation type, sketch shape, dimensions, direction, axes, and any boolean flags. The image is for visual confirmation only -- when the image is ambiguous or the feature partially occluded, prefer the JSON values. Your output sentence MUST be factually consistent with the JSON: quote the correct operation type, sketch geometry, and (when present) the relevant dimensions in concise form (e.g. "radius=5mm", "depth=10mm"). If no JSON is provided, infer everything from the image alone.
+You will also receive a JSON block containing the true parameters for this operation (e.g., modeling_type, construct_type, is_symmetric). Use this JSON strictly to determine the topological operation intent (whether it is an addition or a cut, what the specific tool name is). 
+DO NOT output any specific numerical dimensions (such as depth=10 or radius=5). The geometric scale and proportions are implicitly embedded in the image and do not need to be quantified in text.
 
-Analyze the inputs and write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch/reference], generated [entity changes].'
-For example: 'Extrusion: Based on the red circular sketch (radius=5mm), extruded a green solid cylinder of depth=10mm up to the blue termination face.'"""
+Analyze the visual inputs and the JSON, then write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes].'
+
+For example:
+- 'Extrude: Based on the red circular sketch drawn on the yellow sketch plane, extruded a green solid cylinder up to the blue termination face.'
+- 'Sweep: Based on the red rectangular sketch on the yellow sketch plane and guided by the cyan reference path, generated a green solid sweep feature.'
+- 'Extruded Cut: Based on the red hexagonal sketch on the yellow sketch plane, cut a magenta negative space up to the blue termination face.'"""
 
 # Minimal user-side payload text. The system prompt already specifies the
 # layout, color coding, and required output format -- here we just nudge
