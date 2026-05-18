@@ -1,0 +1,793 @@
+    root
+    ├─ 1b24bbac02597b60176b18cd_27577399cec6a9914ee51a1a_730fbff2836e477a9321c65d_PPP
+    │   ├─ roll_back_index_1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │   
+    │   ├─ roll_back_index_3
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ...
+    │   ├─ roll_back_index_N1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ final_shape_frame.png
+    │   └─ final_snapshot.png
+    │
+    ├─ 1b24bbac02597b60176b18cd_27577399cec6a9914ee51a1a_730fbff2836e477a9321c65d_PPN
+    │   ├─ roll_back_index_1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │   
+    │   ├─ roll_back_index_3
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ...
+    │   ├─ roll_back_index_N1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ final_shape_frame.png
+    │   └─ final_snapshot.png
+    │
+    ...
+    │
+    ├─ 83629b94bc558b0fbb306d48_5e4db617886dc6d447064d26_8f0f0dce71e7ff5610c7f438_PPP
+    │   ├─ roll_back_index_1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ roll_back_index_7
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ...
+    │   ├─ roll_back_index_N2
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ final_shape_frame.png
+    │   └─ final_snapshot.png
+    │
+    ...
+    │
+    ├─ 83629b94bc558b0fbb306d48_5e4db617886dc6d447064d26_8f0f0dce71e7ff5610c7f438_PPN
+    │   ├─ roll_back_index_1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ roll_back_index_7
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ...
+    │   ├─ roll_back_index_N2
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ final_shape_frame.png
+    │   └─ final_snapshot.png
+    │
+    ...
+
+
+
+
+建模序列中的单个建模步骤由四张图表示，如我发给你的四张图所示：第一张是当前建模步骤未执行时现有模型深度图，第二张是草图基准面的mask（例如拉伸操作需要绘制草图，该mask指示草图基准面在现有模型中的位置），第三张是参考几何体mask（例如扫描需要指定扫描路径，该mask指示扫描路径位置，有些操作不需要参考几何体，此时mask为全黑），第四张是该建模步骤生成的实体线框图，红色线条代表该建模操作引用的草图，蓝色为终止面，绿色为其它成型线（新增实体，如拉伸成型实体），品红色为其它成型线（删除实体，如拉伸切除实体）。
+
+我需要使用如下pipeline：用户输入需要的CAD零件的图片，python项目输出一组建模步骤（单个建模步骤由上述四张图表示），描述该CAD零件的构建过程。建模步骤的生成需要使用图片生成大模型，我只用少量的建模步骤组数据进行大模型微调，图片生成大模型最好使用开源的。
+
+
+# 最初版 Cursor
+我需要写一个python项目来进行建模序列生成工作。
+
+建模序列中的单个建模步骤由四张图表示，如我发给你的四张图所示：第一张是当前建模步骤未执行时现有模型深度图，第二张是草图基准面的mask（例如拉伸操作需要绘制草图，该mask指示草图基准面在现有模型中的位置），第三张是参考几何体mask（例如扫描需要指定扫描路径，该mask指示扫描路径位置），第四张是该建模步骤生成的实体线框图，红色线条代表该建模操作引用的草图，蓝色为终止面，绿色为其它成型线（新增实体，如拉伸成型实体），品红色为其它成型线（删除实体，如拉伸切除实体）。
+
+我需要使用如下pipeline：用户输入需要的CAD零件的图片，python项目输出一组建模步骤（单个建模步骤由上述四张图表示），描述该CAD零件的构建过程。建模步骤的生成需要使用图片生成大模型，我只用少量的建模步骤组数据进行大模型微调，图片生成大模型最好使用开源的。
+
+以下是我的数据集目录结构：   
+ root
+    ├─ 8b58a35d476abcc3f5f0023f3ffa2934
+    │   ├─ roll_back_index_1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │   
+    │   ├─ roll_back_index_3
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ...
+    │
+    ├─ 0965da1fce65e7b5b21336873cb2b68e
+    │   ├─ roll_back_index_1
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ├─ roll_back_index_7
+    │   │   ├─prev_depth_map.png
+    │   │   ├─sketch_plane_mask.png
+    │   │   ├─reference_mask.png
+    │   │   └─result_frame.png
+    │   │
+    │   ...
+    │
+    ...
+
+
+
+# Role Definition
+You are a top-tier AI algorithm engineer specializing in PyTorch, the HuggingFace `diffusers` library, `peft` (LoRA), and the application of Multi-Modal Large Language Models (MLLMs like Qwen2-VL). Please help me build a code framework from scratch for "CAD Reverse Modeling Sequence Generation" based on a Multi-View Diffusion Model.
+
+# Project Overview
+The goal of this project is to implement an **Autoregressive Multi-View Structured Step Generator**.
+- **Input:** A single final appearance image of a CAD part from a specific view (`I_final`).
+- **Output:** An ordered sequence of "full-view modeling steps" $[G_1, G_2, \dots, G_n]$.
+- Each step $G_k$ is a concatenated **$4 \times 8$ image grid** (32 sub-images in total):
+  - **4 Rows (Components):** Prev Depth Map, Sketch Plane Mask, Reference Mask, Result Wireframe.
+  - **8 Columns (View Angles):** V3d_XposYposZpos, V3d_XposYposZneg, V3d_XposYnegZpos, V3d_XposYnegZneg, V3d_XnegYposZpos, V3d_XnegYposZneg, V3d_XnegYnegZpos, V3d_XnegYnegZneg.
+
+# Core Tech Stack
+- Deep Learning Framework: `torch`, `torchvision`
+- Diffusion Models: `diffusers` (Using SDXL or Flux.1 as the Base Model)
+- Parameter-Efficient Fine-Tuning: `peft` (LoRA)
+- Tensor Operations: `einops` (Crucial for handling multi-view grid reshapes and attention)
+
+# Please generate the Python code files following this modular structure:
+
+## 1. `dataset.py` (Custom Dataset)
+Requirements:
+- Write a `CADMultiViewDataset` class inheriting from `torch.utils.data.Dataset`.
+- `__getitem__` should return a dictionary containing:
+  - `I_final`: Single RGB image tensor (3, H, W).
+  - `G_prev`: The previous step's $4 \times 8$ tiled image grid (3, 4*H, 8*W). If it's the first step, return an all-zero/black tensor.
+  - `G_target`: The current step's $4 \times 8$ tiled image grid (3, 4*H, 8*W), serving as the generation target for Diffusion.
+  - `prompt`: Text string describing the current modeling command.
+
+## 2. `models/mv_controlnet.py` (Multi-View ControlNet)
+Requirements:
+- We need to hack/modify a standard `ControlNetModel` from `diffusers` to adapt to the tiled multi-view grid.
+- Input is the tiled `G_prev` grid.
+- **Key Modification (Cross-View Attention):** When processing features, use `einops` to decompose `(B, C, 4*H, 8*W)` into `(B, 8, C, 4*H, W)`. Insert a basic Self-Attention module across the 8 view dimensions (`dim=1`) to enforce 3D spatial geometry consistency across different perspectives. After attention, reshape back and pass through standard 2D conv layers.
+- Please provide the implementation for this custom ControlNet block featuring Cross-View Attention.
+
+## 3. `models/pipeline.py` (Custom Diffusion Pipeline)
+Requirements:
+- Assemble a custom Diffusion Pipeline class.
+- Components include: Frozen Base Model (e.g., SDXL UNet), injected trainable LoRA weights, and the custom Multi-View ControlNet.
+- **Incorporate IP-Adapter:** Extract image features from the single `I_final` using a CLIP Vision Model, and inject them into the UNet's Cross-Attention layers to serve as a Global 3D Reference.
+
+## 4. `train.py` (Lightweight Instruction-Tuning Script)
+Requirements:
+- Write a standard Diffusion training loop (Noise prediction loss/MSE).
+- Set freeze states: Freeze the UNet/DiT and Text Encoder.
+- **ONLY set the following parameters as trainable (`requires_grad=True`):**
+  1. LoRA weights injected into the UNet.
+  2. Weights of the custom Multi-View ControlNet.
+  3. Projection layer weights of the IP-Adapter.
+- Include DataLoader iteration, noise addition, target loss calculation, backpropagation, and optimizer step.
+
+## 5. `inference.py` (Autoregressive Inference Pipeline)
+Requirements:
+- Write a `CADAutoregressiveGenerator` class.
+- **Step 1: LLM Planner (Mock/Interface)**
+  - Write an interface `plan_steps(I_final)` that mocks an MLLM (like Qwen2-VL) call, returning a list of text prompts `[P_1, P_2, ..., P_n]`.
+- **Step 2 & 3: Autoregressive Loop**
+  - Given `I_final` and the generated prompt list.
+  - Initialize `G_prev` as a blank state (zeros).
+  - Iterate through each Prompt $P_k$:
+    - Call the assembled Diffusion Pipeline, passing `prompt=P_k`, `image=G_prev` (to ControlNet), and `ip_adapter_image=I_final`.
+    - Generate the current step grid $G_k$.
+    - Update `G_prev = G_k`.
+    - Save the generated $G_k$ grid to disk.
+  - Provide a simple `run()` method to execute the entire workflow.
+
+# Additional Requirements
+- Code must contain detailed, professional comments explaining the logic.
+- Use Python `typing` for all functions.
+- For complex tensor deformations (especially with `reshape` or `einops`), explicitly comment the dimension changes (e.g., `# b c (num_rows h) (num_views w) -> b num_views c (num_rows h) w`).
+- Output the code block by block sequentially. If the output exceeds length limits, stop gracefully so I can ask you to continue.
+
+
+The dataset is structured as follows. Different views of the same CAD part share a common base ID prefix. Modify the dataset code to accommodate this change. The image file final_snapshot.png is `I_final`, during training, randomly select one from different perspectives.
+root
+ ├─ [CAD_PART_ID]_PPP
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ sketch_plane_mask.png
+ │   │   ├─ reference_mask.png
+ │   │   └─ result_frame.png
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   ├─ ...
+ │   ├─ final_shape_frame.png
+ │   └─ final_snapshot.png
+ ├─ [CAD_PART_ID]_PPN
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ... (Repeated for PNP, PNN, NPP, NPN, NNP, NNN)
+
+
+
+# Task Objective
+I need to add a supervised fine-tuning (SFT) script to train a "CAD Reverse Modeling Planner". The base model is `Qwen/Qwen2.5-VL-7B-Instruct`. 
+The model's task is to look at a single final CAD part image (`I_final`) and output a sequential list of structured text prompts describing the modeling steps.
+
+# Hardware Configuration
+- GPUs: 2x NVIDIA RTX 4090 (24GB VRAM each, 48GB total).
+- This means the script MUST support LoRA fine-tuning and utilize multi-GPU training (e.g., via `accelerate` or DeepSpeed ZeRO-2/3) to prevent OOM errors.
+
+# Dataset Structure (JSONL)
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Correction: Misunderstanding of `result_frame.png`
+
+There is a critical misunderstanding in how the system interprets `result_frame.png` in the project. 
+
+Currently, the script/System Prompt assumes `result_frame.png` is the wireframe of the *entire* CAD part after the step is completed. **This is incorrect.**
+
+**Correction:** `result_frame.png` represents ONLY the **local feature** or **delta geometry** created/modified in this *specific* modeling step. It does NOT show the rest of the existing part.
+
+**Example to understand:**
+If the existing model is a rectangular box, and the current step is extruding a cylinder on its top surface:
+- `result_frame.png` will ONLY show the wireframe of the newly created cylinder. It will NOT show the rectangular box.
+- The Red lines will be the circular sketch on the top surface.
+- The Blue line will be the termination face of the cylinder.
+- The Green lines will be the generating lines (sides) of the cylinder.
+
+# Action Required
+Please update the Qwen2.5-VL System Prompt string in the project to explicitly clarify this "local feature only" constraint. 
+
+Replace the old system prompt with this newly revised version:
+
+```python
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide a 2x2 collaged image representing a SINGLE incremental step in a CAD modeling sequence. 
+- Top-Left: Depth map of the entire model BEFORE this operation. 
+- Top-Right: Mask indicating the sketch plane for this operation. 
+- Bottom-Left: Mask indicating reference geometry (if any). 
+- Bottom-Right: The LOCAL feature wireframe. 
+
+CRITICAL INSTRUCTION FOR BOTTOM-RIGHT IMAGE:
+This image is NOT the wireframe of the entire CAD part. It shows ONLY the specific entity created, modified, or removed in this exact step. 
+Color coding for this local feature:
+- Red: The reference sketch used for this specific operation.
+- Green: Edges of the newly ADDED solid entity in this step.
+- Magenta: Edges of the REMOVED/CUT entity in this step.
+- Blue: The termination face of this specific operation.
+
+Analyze the images and write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch/reference], generated [entity changes].' 
+For example: 'Extrusion: Based on the red circular sketch, extruded a green solid cylinder up to the blue termination face.'"""
+
+
+
+
+
+
+
+
+
+
+统计非黑色的有效像素（红、绿、蓝、品红）的方法筛选视角不可行，因为result_frame.png对应的图片在生成时，为了保证可以解析为建模指令，没有考虑遮挡（因为需要从红色部分提取草图，投影到草图基准面还原原始草图，如果有遮挡可能导致该部分不完整，难以将图片还原为CAD操作）。由于result_frame.png没有考虑遮挡，因此统计它的有效像素判断视角是否合适不可行。
+但是我在每个建模步骤文件夹下新增了三个文件：current_shape_frame.png（当前建模操作完成后，整个零件外观当前的线框图（可见边线为紫色粗实线，不可见边线为蓝色细虚线）），current_snapshot.png（当前建模操作完成后，整个零件外观当前的视角渲染图），current_depth_map.png（当前建模操作完成后，整个零件外观当前的深度图）。能否利用current_depth_map.png和prev_depth_map.png来判断视角是否有效？
+
+新文件夹结构如下：
+root
+ ├─ [CAD_PART_ID]_PPP
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ sketch_plane_mask.png
+ │   │   ├─ reference_mask.png
+ │   │   ├─ result_frame.png
+ │   │   ├─ current_shape_frame.png
+ │   │   ├─ current_snapshot.png
+ │   │   └─ current_depth_map.png
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   ├─ ...
+ │   ├─ final_shape_frame.png
+ │   └─ final_snapshot.png
+ ├─ [CAD_PART_ID]_PPN
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ... (Repeated for PNP, PNN, NPP, NPN, NNP, NNN)
+
+
+
+
+# Enhancement: Dynamic Best-View Selection for Qwen2.5-VL Labeling
+
+There is a potential occlusion issue in our `auto_label.py` script. A local CAD operation might be completely hidden in the `PPP` view but clearly visible in the `NNN` view. 
+Sending all 8 views (32 images) to Qwen2.5-VL is computationally expensive and dilutes the model's attention.
+
+To solve this, I have added new files to the dataset. We will now use **Depth Map Differencing** to physically calculate the unoccluded visible area of the newly created feature. You need to automatically select the best viewpoint using depth maps before and after the operation, instead of feeding a fixed viewpoint into QWen for labeling.
+
+# Updated Data Directory Structure
+Each step folder now contains three additional files representing the state AFTER the operation is complete:
+```text
+root
+ ├─ [CAD_PART_ID]_PPP
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png         (Depth before operation)
+ │   │   ├─ sketch_plane_mask.png
+ │   │   ├─ reference_mask.png
+ │   │   ├─ result_frame.png           (Wireframe of the delta feature, no occlusion)
+ │   │   ├─ current_shape_frame.png    (NEW: Wireframe of the ENTIRE part after operation)
+ │   │   ├─ current_snapshot.png       (NEW: Rendered image of the ENTIRE part after operation)
+ │   │   └─ current_depth_map.png      (NEW: Depth after operation)
+ ...
+
+
+
+
+我在每个建模步骤文件夹下新增了一个json文件（operation_param.json），里面描述了该次建模操作的命令的一些信息，例如：
+{
+    "modeling_type": "extrude",
+    "region": [
+        "JGC"
+    ],
+    "depth": 1.0,
+    "direction": null,
+    "construct_type": "NEW",
+    "draft_angle": null,
+    "is_symmetric": false,
+    "is_opposite_dir": false,
+    "id": "FpLunXKtUXBUjWp_0",
+    "is_suppressed": false
+}
+
+新文件夹结构如下：
+root
+ ├─ [CAD_PART_ID]_PPP
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ sketch_plane_mask.png
+ │   │   ├─ reference_mask.png
+ │   │   ├─ result_frame.png
+ │   │   ├─ current_shape_frame.png
+ │   │   ├─ current_snapshot.png
+ │   │   ├─ current_depth_map.png
+ │   │   └─ operation_param.json
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   ├─ ...
+ │   ├─ final_shape_frame.png
+ │   └─ final_snapshot.png
+ ├─ [CAD_PART_ID]_PPN
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ... (Repeated for PNP, PNN, NPP, NPN, NNP, NNN)
+
+在利用QWen自动生成每一步的文本描述Label时，额外将这个json文件输入给QWen的话，可否输出更加准确的描述词？
+
+
+
+# Enhancement: Integrate Ground-Truth Operation Parameters into Prompting
+
+I have added an `operation_param.json` file to each `roll_back_index_{i}` folder. This file contains the exact parametric data for the CAD operation. Integrating this file will significantly improve the accuracy of the generated labels by grounding the QWen's visual interpretation in factual data.
+
+# Updated Data Directory Structure
+```text
+root
+ ├─ [CAD_PART_ID]_PPP
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ sketch_plane_mask.png
+ │   │   ├─ reference_mask.png
+ │   │   ├─ result_frame.png
+ │   │   ├─ current_depth_map.png
+ │   │   └─ operation_param.json    (NEW: Ground-truth parameters)
+ ...
+
+
+***************************
+如果采用你的视觉与数据的“双轨制” (Dual-Track System)，对于语义理解轨，使用4-in-1 渲染图。对于几何生成轨，我将prev_depth_map存在R通道，sketch_plane_mask存到G通道，reference_mask存到B通道形成一张图，此外将线框彩图result_frame作为第二张图，此时几何生成轨使用2*1的图像，减少一些运算及显存，这个方案如何？
+
+
+
+
+
+
+
+
+
+
+
+# Project Update: 4-in-1 image Simplification
+We simplified the data. Originally, a single-view modeling step was represented by four images (prev_depth_map.png, sketch_plane_mask.png, reference_mask.png, result_frame.png). Now, we've merged these four images into one (overlayed_all.png), causing changes to the inputs and outputs of many modules. Therefore, you'll need to iterate through the entire project to accommodate this modification. Pay particular attention to the QWen automatic prompt label generation and the stable-diffusion fine-tuning.
+
+# Updated Data Directory Structure
+root
+ ├─ [CAD_PART_ID]_[BEST_VIEW_SUFFIX]  (e.g., PPP)
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ current_depth_map.png
+ │   │   ├─ operation_param.json
+ │   │   └─ overlayed_all.png       (The 4-in-1 composite image)
+ │   │
+ │   ├─ roll_back_index_3
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ current_depth_map.png
+ │   │   ├─ operation_param.json
+ │   │   └─ overlayed_all.png       (The 4-in-1 composite image)
+ │   ...
+ │   └─ final_snapshot.png      (Used for IP-Adapter global reference)
+
+
+
+
+
+
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide a SINGLE composite image representing one incremental step in a CAD modeling sequence. The image is a 4-in-1 overlay that combines, on the same canvas:
+- A grayscale base representing the depth map of the part BEFORE this operation.
+- A semi-transparent YELLOW mask indicating the sketch plane used for this operation.
+- A semi-transparent CYAN mask indicating reference geometry/paths (if any).
+- A LOCAL feature wireframe showing ONLY the local entity created, modified, or removed in this exact step.
+
+CRITICAL WIREFRAME COLOR CODING:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid local entity.
+- Magenta: Edges of the REMOVED / CUT local entity.
+- Blue: The local entity termination face of this operation.
+
+GROUND-TRUTH OPERATION PARAMETERS (JSON):
+You will also receive a JSON block containing the true parameters for this operation (e.g., modeling_type, construct_type, is_symmetric). Use this JSON strictly to determine the topological operation intent (whether it is an addition or a cut, what the specific tool name is). 
+DO NOT output any specific numerical dimensions (such as depth=10 or radius=5). The geometric scale and proportions are implicitly embedded in the image and do not need to be quantified in text.
+
+Analyze the visual inputs and the JSON, then write a single, concise sentence describing the operation. Format MUST be: '[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes].'
+
+For example:
+- 'Extrude: Based on the red circular sketch drawn on the yellow sketch plane, extruded a green solid cylinder up to the blue termination face.'
+- 'Sweep: Based on the red rectangular sketch on the yellow sketch plane and guided by the cyan reference path, generated a green solid sweep feature.'
+- 'Extruded Cut: Based on the red hexagonal sketch on the yellow sketch plane, cut a magenta negative space up to the blue termination face.'"""
+
+
+
+# Review on Argument Parser & Qwen2.5-VL Input Logic
+
+The `argparse` configuration looks good structurally, but it contains legacy logic for the 2x2 collage (e.g., `--collage-cell-size`). We have moved to a new paradigm.
+
+To maximize the accuracy of the generated prompts, I want Qwen2.5-VL to process exactly **THREE pieces of context** for every step:
+1. **The JSON Parameters:** Content of `operation_param.json`.
+2. **The Local Feature Image:** The 4-in-1 `overlayed_all.png` (from the dynamically selected best view).
+3. **The Global Target Image:** The `final_snapshot.png` (from the corresponding view folder). This gives the model a sense of what the final part looks like, helping it understand the macroscopic purpose of the current local operation.
+
+# Action Required
+Please update the `argparse` block and the corresponding model inference code:
+
+## 1. Clean up `argparse`
+- **REMOVE** `--collage-cell-size`. We no longer build a 2x2 collage in this script.
+- **RENAME** `--debug-collage-dir` to `--debug-output-dir` (or similar) to avoid confusion.
+- **CHANGE** `--include-final-snapshot` so that it is enabled by default. (Maybe rename it to `--no-final-snapshot` with `action="store_true"` to allow disabling it, but default is to use it).
+
+## 2. Update Qwen2.5-VL Input Construction
+When building the message payload for Qwen2.5-VL, the `content` list should contain the JSON text and **TWO image objects**.
+The message structure should look like this:
+```python
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Here is the final CAD part for reference:"},
+            {"type": "image", "image": final_snapshot_image_object}, # The Global Context
+            {"type": "text", "text": "Here is the localized feature preview for the current step:"},
+            {"type": "image", "image": overlayed_all_image_object},   # The Local Context
+            {"type": "text", "text": json_param_text},                # The Ground-Truth Math
+            {"type": "text", "text": SYSTEM_PROMPT}                   # The Instruction
+        ]
+    }
+]
+
+
+
+
+
+
+
+# Enhancement: Enforce Global-Local Mapping in MLLM Prompt
+
+The current `SYSTEM_PROMPT` lacks a crucial connection. Since we are now providing both the global `final_snapshot.png` and the local 4-in-1 composite image, we must force the MLLM to explicitly describe *which part of the final CAD model* is being constructed in the current step. This will provide significantly better semantic guidance.
+
+# Action Required
+Please replace the existing `SYSTEM_PROMPT` in `generate_prompts.py` with this updated version:
+
+```python
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide TWO images and a JSON block for one incremental step in a CAD modeling sequence:
+1. [Global Context]: The final rendered image of the complete CAD part.
+2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
+   - Grayscale base: depth map BEFORE this operation.
+   - Semi-transparent YELLOW mask: sketch plane used.
+   - Semi-transparent CYAN mask: reference geometry (if any).
+   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
+
+CRITICAL WIREFRAME COLOR CODING:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
+
+GROUND-TRUTH OPERATION PARAMETERS (JSON):
+Use the provided JSON to determine the exact operation type (e.g., Extrude, Revolve, Cut). DO NOT output any specific numerical dimensions (like depth=10).
+
+YOUR TASK:
+Analyze the inputs and write a single, concise sentence describing the operation. 
+You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+
+Format MUST strictly follow this structure: 
+'[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes], which corresponds to [the specific functional feature/location in the final rendered image].'
+
+For example:
+- 'Extrude: Based on the red circular sketch on the yellow sketch plane, extruded a green solid cylinder up to the blue termination face, which corresponds to the main central mounting boss in the final part.'
+- 'Extruded Cut: Based on the red rectangular sketch on the yellow sketch plane, cut a magenta negative space up to the blue termination face, which forms the sliding slot on the right side of the final model.'
+- 'Fillet: Generated a green solid feature along the selected edges, which corresponds to the rounded corners on the base plate of the final part.'"""
+
+
+
+
+
+
+
+```python
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide TWO images and a JSON block for one incremental step in a CAD modeling sequence:
+1. [Global Context]: The final rendered image of the complete CAD part.
+2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
+   - Grayscale base: depth map BEFORE this operation.
+   - Semi-transparent YELLOW mask: sketch plane used.
+   - Semi-transparent CYAN mask: reference geometry (e.g., sweep path, chanfer edges) (if any).
+   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
+
+CRITICAL WIREFRAME COLOR CODING:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
+
+GROUND-TRUTH OPERATION PARAMETERS (JSON):
+Use the provided JSON to determine the exact operation type (e.g., Extrude, Revolve, Cut). DO NOT output any specific numerical dimensions (like depth=10).
+
+YOUR TASK:
+Analyze the inputs and write a single, concise sentence describing the operation. 
+You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+
+Format MUST strictly follow this structure: 
+'[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes], which corresponds to [the specific functional feature/location in the final rendered image].'
+
+For example:
+- 'Extrude: Based on the red circular sketch on the yellow-masked sketch plane, extruded a green solid cylinder up to the blue termination face, which corresponds to the main central mounting boss in the final part.'
+- 'Extruded Cut: Based on the red rectangular sketch on the yellow-masked sketch plane, cut a magenta negative space up to the blue termination face, which forms the sliding slot on the right side of the final model.'
+- 'Fillet: Generated a Magenta solid feature along the edges of the cyan-masked plane, which corresponds to the rounded corners on the base plate of the final part.'"""
+
+
+
+
+
+---------------------
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide TWO images and a JSON block for one incremental step in a CAD modeling sequence:
+1. [Global Context]: The final rendered image of the complete CAD part.
+2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
+   - Grayscale base: depth map BEFORE this operation.
+   - Semi-transparent YELLOW mask: sketch plane used.
+   - Semi-transparent CYAN mask: reference geometry (e.g., sweep paths, revolution axes).
+   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
+
+CRITICAL WIREFRAME COLOR CODING:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
+
+GROUND-TRUTH OPERATION PARAMETERS (JSON):
+Use the provided JSON to determine the exact operation type (e.g., Extrude, Revolve, Cut) and geometric intent. 
+RESTRICTIONS ON JSON USAGE: 
+1. DO NOT output any specific numerical dimensions (like depth=1.0). 
+2. DO NOT output internal CAD software IDs (like "JIB", "FpLunXKtUXBUjWp_0"). 
+If the operation relies on a reference geometry (like an axis of revolution, a sweep path, or a mirror plane), you MUST describe its visual spatial location or orientation based on the images (especially utilizing the CYAN mask) instead of using its raw ID.
+3. DO NOT use view-dependent absolute directions (like "left", "right", "top", "bottom" of the image). Because the camera angle changes, "left" is meaningless.
+4. MUST use view-invariant, object-centric descriptions. Refer to reference geometries using their topology (e.g., "the central axis", "the longest edge of the sketch") OR simply refer to the color masks (e.g., "the cyan-masked axis", "the yellow sketch plane").
+
+YOUR TASK:
+Analyze the inputs and write a single, concise sentence describing the operation. 
+You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+
+Format MUST strictly follow this structure: 
+'[Operation Type]: Based on [sketch shape] on the [yellow sketch plane], [action description referencing spatial orientation or the cyan mask if applicable], which corresponds to [the specific functional feature/location in the final rendered image].'
+
+For example:
+- 'Revolve: Based on the red semi-circular sketch on the yellow sketch plane, revolved a green solid hemisphere around the central vertical axis (indicated by the cyan mask), which corresponds to the rounded dome at the top of the final part.'
+- 'Sweep: Based on the red circular sketch on the yellow sketch plane, swept a green solid tube along the curved cyan reference path, which corresponds to the side handle of the final part.'
+- 'Extrude: Based on the red rectangular sketch on the yellow sketch plane, extruded a green solid block up to the blue termination face, which corresponds to the main base plate in the final part.'"""
+
+
+-------------------------
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide TWO images and a JSON block for one incremental step in a CAD modeling sequence:
+1. [Global Context]: The final rendered image of the complete CAD part.
+2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
+   - Grayscale base: depth map BEFORE this operation.
+   - Semi-transparent YELLOW mask: sketch plane used.
+   - Semi-transparent CYAN mask: reference geometry (e.g., sweep paths, revolution axes).
+   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
+
+CRITICAL WIREFRAME COLOR CODING:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
+
+RESTRICTIONS ON JSON & SPATIAL DESCRIPTIONS:
+Use the provided JSON for operation intent, but adhere strictly to these rules:
+1. DO NOT output numerical dimensions (like depth=1.0).
+2. DO NOT output internal CAD software IDs (like "JIB", "FpLun..."). 
+3. DO NOT use view-dependent absolute directions (like "left", "right", "top", "bottom" of the image). Because the camera angle changes, "left" is meaningless.
+4. MUST use view-invariant, object-centric descriptions. Refer to reference geometries using their topology (e.g., "the central axis", "the longest edge of the sketch") OR simply refer to the color masks (e.g., "the cyan-masked axis", "the yellow sketch plane").
+
+YOUR TASK:
+Write a single, concise sentence describing the operation. 
+Establish a Global-Local connection: describe the local wireframe action, AND state which specific feature/part of the FINAL CAD model it corresponds to.
+
+Format MUST strictly follow: 
+'[Operation Type]: Based on [sketch shape] on the [yellow sketch plane], [action description utilizing view-invariant terms or color masks], which corresponds to [the specific functional feature/location in the final rendered image].'
+
+For example:
+- 'Revolve: Based on the red rectangular sketch on the yellow sketch plane, revolved a green solid cylinder around the cyan-masked axis, which corresponds to the main central shaft in the final part.'
+- 'Extruded Cut: Based on the red circular sketch on the yellow sketch plane, cut a magenta negative space up to the blue termination face, which forms the central through-hole of the final model.'"""
+
+
+
+
+
+
+
+
+-----------------------
+# Role & Context
+You are an expert AI Algorithm Engineer. We are performing a **Major Refactoring** of our CAD Reverse Modeling codebase. 
+We are abandoning the complex multi-view ($4 \times 8$ grid) approach and downgrading to a **Single-View MVP (Minimum Viable Product)** to validate the core end-to-end pipeline first.
+
+# Phase 1: Dead Code Elimination (What to DELETE)
+Please scan the entire codebase and aggressively remove the following obsolete logic:
+1. **Multi-View Iteration:** Delete any loops, functions, or argparse parameters that iterate over the 8 camera views (e.g., `PPP`, `PPN`, `NNN`).
+2. **View Selection Logic:** Remove the dynamic best-view selection algorithms (e.g., Depth Map Differencing, `find_best_view`, pixel counting). We will strictly use a single, hardcoded view (e.g., `PPP`) for this MVP.
+3. **Grid Compositing:** Delete all functions related to building $4 \times 8$ or $2 \times 2$ image grids using `einops`, `PIL`, or `torch.cat`. 
+4. **Custom Network Architectures:** Delete any custom `MultiViewControlNet` or `CrossViewAttention` classes. We no longer need multi-view consistency modules.
+
+# Phase 2: Implement the Single-View MVP (What to KEEP & BUILD)
+
+## 1. Dataset & Data Loader (`dataset.py`)
+Rewrite the dataset class to operate on a strictly linear, single-view sequence.
+- **Directory Assumption:** Assume the data root only contains steps for a single view, e.g., `[PART_ID]_PPP/roll_back_index_{i}/`.
+- **Items to Load for Step $k$:**
+  1. `I_final`: Load `final_snapshot.png` (Global Context).
+  2. `Prompt`: Read text from `prompt.txt` (Generated by Qwen).
+  3. `Condition_Image`: Load `prev_depth_map.png` (The clean depth map BEFORE this step, to be fed into ControlNet). Convert to RGB (3 channels of identical grayscale).
+  4. `Target_Image`: Load `overlayed_all.png` (The 4-in-1 composite image containing the colored wireframe and masks, to be used as the Diffusion target).
+
+## 2. Diffusion Pipeline & Model (`models.py` / `pipeline.py`)
+Replace all custom multi-view pipelines with standard HuggingFace `diffusers` components.
+- Use a standard `StableDiffusionXLControlNetPipeline` (or SD 1.5 equivalent, based on our config).
+- Instantiate a standard, off-the-shelf `ControlNetModel`.
+- Integrate a standard `IPAdapter` to handle `I_final`.
+
+## 3. Training Loop (`train.py`)
+Refactor the training loop to be a standard Image-to-Image conditional generation flow:
+- Text features from `Prompt`.
+- Image features from `I_final` (via IP-Adapter).
+- Spatial conditioning from `Condition_Image` (via ControlNet).
+- The model predicts the noise to denoise towards `Target_Image`.
+- Ensure standard loss calculation (MSE) without any multi-view consistency penalty terms.
+
+# Execution
+Please output the refactored code file by file (e.g., `dataset.py`, `models.py`, `train.py`). Add a brief comment `// MVP Refactor` next to major changes so I can track your logic. Ensure the code is runnable and free of unresolved imports.
+
+
+
+
+
+
+
+------------------------------
+Activation Mode
+
+Always On
+This rule will always be applied
+Content
+1. Overview (概述)
+本数据集用于训练“基于视觉逆向生成 CAD 建模步骤系统”。数据集记录了从空白状态到最终零件的每一步 CAD 特征建模过程。当前阶段主要针对单视角渲染与生成进行验证，但文件系统保留了多视角（Multi-view）的扩展结构。
+
+2. Directory Structure (数据集结构)
+root
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
+ │   ├─ roll_back_index_1 
+ │   │   ├─ prev_depth_map.png 
+ │   │   ├─ current_depth_map.png 
+ │   │   ├─ operation_param.json
+ │   │   └─ overlayed_all.png
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   │
+ │   ├─ ...
+ │   │
+ │   ├─ final_shape_frame.png
+ │   └─ final_snapshot.png
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., NNN)
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ...
+
+3. File Definitions (各文件/文件夹含义)
+3.1 序列级别文件 (Sequence-Level Files)
+  位于 [CAD_PART_ID]_[VIEW_SUFFIX] 文件夹根目录下，代表该零件的最终全局状态。
+  final_snapshot.png: 最终零件在该视角下的彩色渲染图。用途：作为全局上下文 (Global Context)，输入给 MLLM 帮助其理解局部特征的宏观位置；同时作为 Diffusion 模型 IP-Adapter 的参考输入。
+  final_shape_frame.png: 最终零件在该视角下的全局线框图。用途：辅助参考与可视化对比。
+
+3.2 步骤级别文件 (Step-Level Files)
+  位于 roll_back_index_{i} 文件夹下，代表第 i 步操作的状态变化。
+  prev_depth_map.png: 当前建模操作未执行前，现有模型的深度图 (灰度图)。用途：作为 Diffusion 模型中 ControlNet 的空间条件输入，提供“干净的几何底盘”。
+  current_depth_map.png: 当前建模操作执行完成后，更新后模型的深度图 (灰度图)。
+  operation_param.json: 当前建模步骤的 Ground-Truth 真实参数（包含操作类型 modeling_type、深度 depth、构造类型 construct_type 等）。用途：为 MLLM 生成训练提示词提供绝对准确的底层逻辑，消除视觉歧义。
+  overlayed_all.png: (核心文件) 4-in-1 Alpha 叠加图。由底层深度图、草图面 Mask、参考面 Mask 以及彩色增量线框叠加而成的人类视觉友好图。用途：作为 MLLM 理解当前操作步骤的“局部上下文”图像，也是 Diffusion 图像生成的 Target（目标图像）。
+
+4. Global Core Rules & Visual Anchors (全局核心规则与视觉锚点)
+Rule A: Color Mask Encoding (颜色掩码绝对对应法则)
+  在 overlayed_all.png 中，颜色具备唯一的拓扑几何物理含义：
+  Semi-Transparent Yellow (半透明亮黄色): 草图基准面 (Sketch Plane)。
+  Semi-Transparent Cyan (半透明青色): 参考几何体 (e.g., 路径 / 旋转轴) (Reference Geometry/Axis/Path)。
+  Red (纯红色线): 当前操作引用的二维草图 (Reference 2D Sketch)。
+  Green (纯绿色线): 本步骤新增的实体边缘 (Added Solid Entity / construct_type: "NEW", "ADD", ...).
+  Magenta (纯品红色线): 本步骤切除/移除的实体边缘 (Removed Entity / construct_type: "CUT", "REMOVE", ...).
+  Blue (纯蓝色线): 本步骤拉伸/扫描的终止面轮廓 (Termination Face)。
+
+
+
+
+

@@ -11,6 +11,7 @@ Default repos (edit ``config.ModelConfig`` / ``auto_label.LabelerConfig`` if
 you change them in code):
 
 * ``stabilityai/stable-diffusion-xl-base-1.0`` — SDXL backbone (diffusers)
+* ``diffusers/controlnet-depth-sdxl-1.0`` — depth ControlNet (matches ``ModelConfig``)
 * ``openai/clip-vit-large-patch14`` — CLIP vision for IP-Adapter
 * ``Qwen/Qwen2.5-VL-7B-Instruct`` — Qwen2.5-VL for pseudo-labeling
 
@@ -175,6 +176,12 @@ def _parse_args() -> argparse.Namespace:
         help="Optional Git revision for CLIP repo.",
     )
     p.add_argument(
+        "--revision-controlnet",
+        type=str,
+        default=None,
+        help="Optional Git revision for ControlNet repo.",
+    )
+    p.add_argument(
         "--revision-qwen",
         type=str,
         default=None,
@@ -204,6 +211,13 @@ def main() -> None:
                 key="sdxl",
                 repo_id=sdxl_id,
                 revision=args.revision_sdxl,
+            )
+        )
+        tasks.append(
+            RepoTask(
+                key="controlnet_depth_sdxl",
+                repo_id=mc.controlnet_model_name_or_path,
+                revision=args.revision_controlnet,
             )
         )
         tasks.append(
