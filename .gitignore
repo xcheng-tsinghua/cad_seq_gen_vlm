@@ -6,6 +6,8 @@ utils/__pycache__
 model_trained
 output
 vlm
+checkpoints/
+pretrained_lm/
 
 # HuggingFace model snapshots auto-downloaded by config.set_hf_cache_env().
 # Keep the folder in the repo (so it exists on fresh clones) but ignore
