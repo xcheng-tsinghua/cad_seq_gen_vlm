@@ -139,7 +139,15 @@ class CADPipelineOutput:
 
 
 class CADSingleViewPipeline(nn.Module):
-    """// MVP Refactor: replaces ``CADMultiViewPipeline``."""
+    """Trainer/inference bundle aligned with ``StableDiffusionXLControlNetPipeline``.
+
+    Loads ``ControlNetModel``, SDXL UNet/VAE/schedulers, dual text encoders, and a CLIP image
+    encoder + small projection for IP-Adapter tokens. ``training_step_loss`` implements the same
+    conditional denoising objective as the stock pipeline, without instantiating the
+    ``DiffusionPipeline`` wrapper class.
+
+    // MVP Refactor: replaces ``CADMultiViewPipeline``.
+    """
 
     def __init__(
         self,

@@ -1,4 +1,4 @@
-"""Single-view CAD step dataset for MVP training.
+"""Single-view CAD step dataset — **Phase 2** diffusion training.
 
 // MVP Refactor: linear sequence under ``[PART_ID]_PPP/`` only — no 8-view scan,
 no einops grids, no ``G_prev`` multi-tile tensor.

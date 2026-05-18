@@ -1,9 +1,15 @@
-"""Lightweight trainer — single-view SDXL + ControlNet + IP-Adapter (MVP).
+"""Lightweight trainer — Phase 2 (diffusion painter).
 
-// MVP Refactor: no multi-view ControlNet; standard ``ControlNetModel``.
+Finetunes **SDXL + standard ControlNet + IP-Adapter** on single-view CAD steps.
+The trainable stack mirrors ``diffusers.StableDiffusionXLControlNetPipeline`` components
+(VAE, dual CLIP text encoders, ``ControlNetModel``, ``UNet2DConditionModel``); this script
+uses :class:`models.CADSingleViewPipeline` for a compact training forward (noise MSE) instead
+of wrapping the full pipeline class.
 
-Frozen: VAE, text encoders, CLIP vision (base).
-Trainable: UNet LoRA, full ControlNet, IP-Adapter projector + UNet IP K/V.
+**Conditioning:** ``prev_depth_map`` (3-ch) + ``prompt.txt`` + ``final_snapshot`` (IP-Adapter).
+**Target:** ``overlayed_all.png`` for the current step.
+
+// Phase 1 labels prompts via ``auto_label.py``; Phase 3 planner SFT is ``train_qwen_planner.py``.
 
 Usage::
 

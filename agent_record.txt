@@ -791,3 +791,104 @@ Rule A: Color Mask Encoding (颜色掩码绝对对应法则)
 
 
 
+
+-------------------------------
+SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide up to two images and a JSON block for one incremental step in a CAD modeling sequence:
+1. [Global Context] (optional): The final rendered image of the complete CAD part.
+2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
+   - Grayscale base: depth map BEFORE this operation.
+   - Semi-transparent YELLOW mask: sketch plane used.
+   - Semi-transparent CYAN mask: reference geometry (e.g., sweep path, chanfer edges) (if any).
+   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
+
+CRITICAL WIREFRAME COLOR CODING:
+- Red: The reference 2D sketch used by this operation.
+- Green: Edges of the newly ADDED solid entity.
+- Magenta: Edges of the REMOVED / CUT entity.
+- Blue: The termination face of this operation.
+
+GROUND-TRUTH OPERATION PARAMETERS (JSON):
+Use the provided JSON to determine the exact operation type (e.g., Extrude, Revolve, Cut) and geometric intent. 
+RESTRICTIONS ON JSON USAGE: 
+1. DO NOT output any specific numerical dimensions (like depth=1.0). 
+2. DO NOT output internal CAD software IDs (like "JIB", "FpLunXKtUXBUjWp_0"). If the operation relies on a reference geometry (like an axis of revolution, a sweep path, or a mirror plane), you MUST describe its visual spatial location or orientation based on the images instead of using its raw ID.
+
+YOUR TASK:
+Analyze the inputs and write a single, concise sentence describing the operation. 
+You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+
+Format MUST strictly follow this structure: 
+'[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes], which corresponds to [the specific functional feature/location in the final rendered image].'
+
+For example:
+- 'Extrude: Based on the red circular sketch on the yellow-masked sketch plane, extruded a green solid cylinder up to the blue termination face, which corresponds to the main central mounting boss in the final part.'
+- 'Extruded Cut: Based on the red rectangular sketch on the yellow-masked sketch plane, cut a magenta negative space up to the blue termination face, which forms the sliding slot on the right side of the final model.'
+- 'Fillet: Generated a Magenta solid feature along the edges of the cyan-masked plane, which corresponds to the rounded corners on the base plate of the final part.'"""
+
+
+
+
+
+
+
+------------------------------
+# System Architecture & Workflow Handover: Single-View CAD Reverse Modeling MVP (Minimum Viable Product)
+
+## 1. Project Overview
+We are building a "Vision-Based CAD Modeling Step Reverse Generation System" (Single-View MVP). The core philosophy is **Semantic-Geometric Decoupling**: 
+- A Multi-Modal LLM (Qwen2.5-VL) acts as the **Planner**, deducing topological operations (text prompts).
+- A Diffusion Model (SDXL) acts as the **Renderer**, generating pixel-perfect geometry (masks and wireframes).
+
+---
+
+## 2. Experimental Workflow (The 4 Phases)
+
+Please review, check, and update the codebase to ensure it strictly follows these 4 phases. Remove any legacy code related to multi-view (e.g., 4x8 grids, cross-view attention) and ensure standard `diffusers` and `transformers` APIs are used.
+
+### Phase 1: Data Auto-Labeling (Qwen2.5-VL Inference for Dataset Creation)
+**Goal:** Generate ground-truth text prompts (`prompt.txt`) for SDXL training.
+- **Inputs:** 1. `final_snapshot.png` (Global Context)
+  2. `prev_depth_map.png` (Clean generation base)
+  3. `operation_param.json` (Factual Constraints)
+  4. `overlayed_all.png` (Target of the Painter)
+- **Prompting Rule:** You can provide QWen with a prompt similar to this: "A painter has been given two images — prev_depth_map.png, final_snapshot.png. You need to provide them with a description that enables them to paint overlayed_all.png. Your description MUST NOT include numerical dimensions or internal CAD element IDs".
+- **Output:** `prompt.txt` saved in the step directory.
+
+### Phase 2: Diffusion Model Fine-Tuning (SDXL + ControlNet + IP-Adapter)
+**Goal:** Train SDXL to render the geometric action based on the semantic prompt.
+- **Architecture:** Standard `StableDiffusionXLControlNetPipeline`.
+- **Inputs (Conditioning):**
+  1. **ControlNet:** `prev_depth_map.png` (Converted to 3-channel RGB. Provides the clean geometric base).
+  2. **IP-Adapter:** `final_snapshot.png` (Provides global shape reference).
+  3. **Text Encoder:** `prompt.txt` (Generated from Phase 1).
+- **Target (Loss Calculation):** `overlayed_all.png` of the CURRENT step.
+- **Task:** The model learns to draw the yellow/cyan masks and red/green/blue wireframes precisely onto the clean depth map.
+
+### Phase 3: MLLM Fine-Tuning (Qwen2.5-VL LoRA/SFT)
+**Goal:** Train Qwen to act as the autoregressive planner during actual inference, where `operation_param.json` is NO LONGER available.
+- **Inputs:**
+  1. `final_snapshot.png` (Target goal).
+  2. `prev_state_image` (This could be the `prev_depth_map.png` or the `overlayed_all.png` from the *previous* step, representing the current status).
+- **Target:** The `prompt.txt` for the NEXT immediate operation.
+- **Task:** Qwen learns to compare the current state with the final state and deduce the next logical CAD operation without needing the ground-truth JSON.
+
+### Phase 4: Autoregressive Inference Loop (The Final Pipeline)
+**Goal:** End-to-End reverse engineering of a novel CAD part.
+- **Initialization:** Given $I_{final}$ and an base $depth_0$ (main_ref_depth.png).  
+- **Step 1 (Plan):** Qwen (from Phase 3) takes $I_{final}$ and $depth_k$, predicting $Prompt_{k+1}$.
+- **Step 2 (Render):** SDXL (from Phase 2) takes $I_{final}$, $depth_k$, and $Prompt_{k+1}$, generating $G_{k+1}$ (`overlayed_all.png`).
+- **Step 3 (Execute):** A downstream CAD parser (outside the scope of these neural networks) reads $G_{k+1}$, performs the boolean operation, and renders a new clean $depth_{k+1}$.
+- **Loop:** Repeat until Qwen outputs a `<STOP>` token or the depth matches the final snapshot.
+
+---
+
+## Action Required from Coding Agent:
+1. **Audit `dataset.py`:** Ensure it only loads the files mentioned above in a single-view sequence. Check the depth map normalization logic.
+2. **Audit `generate_prompts.py` (Phase 1):** Ensure the message payload to Qwen includes the two images + JSON + strict system prompt.
+3. **Audit `train_sdxl.py` (Phase 2):** Ensure ControlNet receives `prev_depth_map` while the target is `overlayed_all`.
+4. **Audit/Create `train_qwen.py` (Phase 3):** Set up the SFT loop for Qwen2.5-VL without the JSON input.
+5. **Audit `inference.py` (Phase 4):** Ensure the autoregressive loop correctly passes outputs from Qwen to SDXL and handles the dummy CAD environment update.
+
+
+
+

@@ -1,5 +1,11 @@
 """Global configuration — single-view MVP CAD reverse-modeling pipeline.
 
+Workflow (4 phases):
+1. **Phase 1** — ``auto_label.py``: Qwen2.5-VL writes ``prompt.txt`` (painter instructions).
+2. **Phase 2** — ``train.py``: SDXL + ControlNet + IP-Adapter fits ``overlayed_all.png``.
+3. **Phase 3** — ``train_qwen_planner.py`` + :mod:`qwen_planner_dataset`: planner SFT without JSON.
+4. **Phase 4** — ``inference.py``: planner + diffusion autoregressive loop.
+
 // MVP Refactor: multi-view (8 cameras, grids, cross-view attention) removed.
 Only ``[PART_ID]_PPP/`` is supported; train one canonical view end-to-end.
 """
@@ -39,6 +45,11 @@ PROMPT_FILENAME: str = "prompt.txt"
 PREV_DEPTH_FILENAME: str = "prev_depth_map.png"
 OVERLAYED_FILENAME: str = "overlayed_all.png"
 OPERATION_PARAM_FILENAME: str = "operation_param.json"
+# Phase 4 / planner: optional CAD seed depth at empty part state (part root).
+MAIN_REF_DEPTH_FILENAME: str = "main_ref_depth.png"
+
+# Planner fine-tuning / autoregressive loop — stop when the fine-tuned model emits this token.
+PLANNER_STOP_TOKEN: str = "<STOP>"
 
 # Training image resolution (condition + target). SDXL-friendly default.
 TRAIN_IMAGE_H: int = 1024

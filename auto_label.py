@@ -1,31 +1,29 @@
-"""Pseudo-label generator for CAD modeling steps using Qwen2.5-VL.
+"""Phase 1 — Pseudo-labeling with Qwen2.5-VL (painter-oriented prompts).
 
-For every CAD part under ``--data-root``, this script walks the canonical
-view folder (default ``<part>_PPP``), reads the **4-in-1 overlay**
-``overlayed_all.png`` of each ``roll_back_index_N`` step, optionally loads
-``operation_param.json`` as authoritative context, feeds them to
-**Qwen2.5-VL**, and writes the resulting one-line description to
-``prompt.txt`` inside that step folder.
+For each ``roll_back_index_*`` under ``<part>_PPP/``, builds **Phase-1**
+training text in :data:`config.PROMPT_FILENAME` for the diffusion painter
+(:class:`dataset.CADSingleViewDataset`).
 
-The dataset has been simplified: the original 4 component PNGs
-(``prev_depth_map.png``, ``sketch_plane_mask.png``, ``reference_mask.png``,
-``result_frame.png``) are now pre-composited into a single ``overlayed_all.png``
-by the data-prep stage, so this script no longer builds a 2 x 2 collage --
-it just opens the overlay and forwards it to Qwen2.5-VL.
+**Inputs to Qwen (semantic–geometric decoupling):**
 
-Color coding INSIDE the overlay (carried over from the wireframe layer of
-``result_frame.png``):
+1. ``prev_depth_map.png`` — clean depth / geometry *before* this step.
+2. ``final_snapshot.png`` — global target shape (part root).
+3. ``operation_param.json`` — factual constraints (optional via flag).
+4. ``overlayed_all.png`` — ground-truth painter target for this step (so the
+   caption aligns with yellow/cyan masks and wireframe colors).
 
-    Red     -- the reference 2D sketch used by this step
-    Green   -- edges of the newly ADDED solid entity
-    Magenta -- edges of the REMOVED / CUT entity
-    Blue    -- the termination face of the operation
+**Rule:** Describe how a painter should draw the overlay on the depth base,
+consistent with the final part. **No** numerical dimensions and **no** internal
+CAD IDs in the output.
 
-// MVP Refactor: single canonical camera only (see :data:`config.MVP_VIEW_SUFFIX`).
-No multi-view iteration, depth-based view picking, or prompt broadcasting.
+Color coding inside ``overlayed_all.png`` (wireframe layer):
 
-The output location matches :data:`config.PROMPT_FILENAME`, which is where
-:class:`dataset.CADSingleViewDataset._load_prompt` looks for prompts.
+    Red     -- reference 2D sketch for this step
+    Green   -- newly ADDED solid edges
+    Magenta -- REMOVED / CUT edges
+    Blue    -- termination face / limit surface
+
+// MVP: single view ``config.MVP_VIEW_SUFFIX`` only.
 
 Usage
 -----
@@ -33,14 +31,12 @@ Usage
 
     pip install -U transformers>=4.49.0 qwen-vl-utils>=0.0.10
     python auto_label.py --data-root ./data
-    # Optional flags:
-    #   --model Qwen/Qwen2.5-VL-3B-Instruct   # smaller, faster
-    #   --no-operation-params                  # disable JSON grounding (default: ON)
-    #   --overwrite                            # re-label even if prompt.txt exists
-    #   --include-final-snapshot               # add part's final image as extra context
-    #   --max-parts 10                         # quick smoke test
-    #   --dry-run                              # print plan, don't load the MLLM
-    #   --debug-overlay-dir ./out/overlays     # save a copy of every input image
+    # Optional:
+    #   --no-operation-params    # drop JSON (default: JSON ON)
+    #   --overwrite              # regenerate existing prompt.txt
+    #   --max-parts N            # smoke test
+    #   --dry-run
+    #   --debug-overlay-dir DIR
 
 Resume / safety
 ---------------
@@ -69,6 +65,7 @@ from config import (
     OPERATION_PARAM_FILENAME,
     OVERLAYED_FILENAME,
     PRETRAINED_DIR,
+    PREV_DEPTH_FILENAME,
     PROMPT_FILENAME,
     STEP_DIR_PREFIX,
 )
@@ -78,44 +75,28 @@ from config import (
 # Static prompts
 # ===========================================================================
 
-SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide up to two images and a JSON block for one incremental step in a CAD modeling sequence:
-1. [Global Context] (optional): The final rendered image of the complete CAD part.
-2. [Local Context]: A 4-in-1 composite overlay image representing the CURRENT step.
-   - Grayscale base: depth map BEFORE this operation.
-   - Semi-transparent YELLOW mask: sketch plane used.
-   - Semi-transparent CYAN mask: reference geometry (e.g., sweep path, chanfer edges) (if any).
-   - Crisp colored wireframe (Red/Green/Blue/Magenta): the LOCAL feature created/modified in this exact step ONLY.
+# // Phase 1: painter metaphor + strict output constraints for SDXL captions.
+SYSTEM_PROMPT = """You are helping train a neural "painter" for CAD reverse modeling.
 
-CRITICAL WIREFRAME COLOR CODING:
-- Red: The reference 2D sketch used by this operation.
-- Green: Edges of the newly ADDED solid entity.
-- Magenta: Edges of the REMOVED / CUT entity.
-- Blue: The termination face of this operation.
+Setup: A painter is given (A) a clean depth-style geometry image — the state *before* this modeling step (`prev_depth_map`) — and (B) the final shaded part (`final_snapshot`). They must learn to paint a composite image that matches the ground-truth target (`overlayed_all`): yellow/cyan masks plus red/green/blue/magenta wireframe overlays on top of the depth base.
 
-GROUND-TRUTH OPERATION PARAMETERS (JSON):
-Use the provided JSON to determine the exact operation type (e.g., Extrude, Revolve, Cut) and geometric intent. 
-RESTRICTIONS ON JSON USAGE: 
-1. DO NOT output any specific numerical dimensions (like depth=1.0). 
-2. DO NOT output internal CAD software IDs (like "JIB", "FpLunXKtUXBUjWp_0"). If the operation relies on a reference geometry (like an axis of revolution, a sweep path, or a mirror plane), you MUST describe its visual spatial location or orientation based on the images instead of using its raw ID.
+You may also see **authoritative operation parameters as JSON**. Use it only to disambiguate operation *type* and topology — translate that into plain visual language. **Never** copy numbers from the JSON into your answer.
 
-YOUR TASK:
-Analyze the inputs and write a single, concise sentence describing the operation. 
-You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+**Wireframe / mask semantics in the target overlay:**
+- Red: reference 2D sketch driving this step.
+- Green: edges of newly **added** solid material.
+- Magenta: **cut** / removed material edges.
+- Blue: termination / limit surface for the operation.
+- Yellow / cyan regions: sketch plane and reference-geometry masks.
 
-Format MUST strictly follow this structure: 
-'[Operation Type]: Based on [sketch shape] on the [sketch plane/reference], generated [entity changes], which corresponds to [the specific functional feature/location in the final rendered image].'
+**Hard rules for YOUR reply (the painter's instruction text):**
+1. Enable someone to paint `overlayed_all` on top of image (A) while staying consistent with global shape (B).
+2. Do **not** include numerical dimensions (mm, degrees, counts, etc.).
+3. Do **not** name internal CAD element IDs, database keys, or opaque feature handles — use spatial relations and visible regions instead.
+4. Prefer one or two tight sentences; no markdown, no bullet lists, no preamble."""
 
-For example:
-- 'Extrude: Based on the red circular sketch on the yellow-masked sketch plane, extruded a green solid cylinder up to the blue termination face, which corresponds to the main central mounting boss in the final part.'
-- 'Extruded Cut: Based on the red rectangular sketch on the yellow-masked sketch plane, cut a magenta negative space up to the blue termination face, which forms the sliding slot on the right side of the final model.'
-- 'Fillet: Generated a Magenta solid feature along the edges of the cyan-masked plane, which corresponds to the rounded corners on the base plate of the final part.'"""
-
-# Minimal user-side payload text. The system prompt already specifies the
-# layout, color coding, and required output format -- here we just nudge
-# the model to actually produce that single sentence.
 USER_INSTRUCTION = (
-    "Analyze the overlay image above and respond with ONE sentence "
-    "in the required format. No preamble, no markdown, no extra commentary."
+    "Write the painter-facing instruction text now — only the instruction, nothing else."
 )
 
 _STEP_RE = re.compile(rf"^{re.escape(STEP_DIR_PREFIX)}(\d+)$")
@@ -145,7 +126,7 @@ class LabelerConfig:
     dtype: str = "bfloat16"
     # The new format is more verbose ("Extrusion: Based on ..., generated ...");
     # 96 tokens leaves headroom while still capping cost.
-    max_new_tokens: int = 96
+    max_new_tokens: int = 128
     # Qwen processor "dynamic resolution" knobs. The 4-in-1 overlay is a
     # single image whose native size depends on the data-prep stage. We
     # leave plenty of room (max_pixels ~1.1 MP) to avoid downscaling
@@ -153,8 +134,6 @@ class LabelerConfig:
     min_pixels: int = 256 * 28 * 28        # ~200 k pixels
     max_pixels: int = 1408 * 28 * 28       # ~1.10 M pixels
     overwrite: bool = False
-    # Default OFF: pass ``--include-final-snapshot`` for global reference context.
-    include_final_snapshot: bool = False
     max_parts: Optional[int] = None
     log_every: int = 25
     use_flash_attention: bool = True
@@ -174,13 +153,7 @@ class LabelerConfig:
 # Qwen2.5-VL wrapper
 # ===========================================================================
 class Qwen25VLLabeler:
-    """Thin wrapper around the HF Qwen2.5-VL model.
-
-    Loads model + processor once, then exposes :meth:`describe_step` which
-    feeds a single ``overlayed_all.png`` (the 4-in-1 composite produced by
-    data prep) plus optional ground-truth JSON parameters to Qwen2.5-VL,
-    and returns a cleaned-up one-line description of the modeling operation.
-    """
+    """Qwen2.5-VL — Phase 1 labeling (prev depth + final + JSON + overlay target)."""
 
     def __init__(self, cfg: LabelerConfig) -> None:
         self.cfg = cfg
@@ -245,6 +218,18 @@ class Qwen25VLLabeler:
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
+    def _load_image_rgb(path: Optional[str], placeholder_size: Tuple[int, int] = (256, 256)):
+        """Load an image as RGB, or return a gray placeholder."""
+        from PIL import Image
+        if path is not None and os.path.isfile(path):
+            img = Image.open(path)
+            if img.mode == "L":
+                return img.convert("RGB")
+            return img.convert("RGB")
+        w, h = placeholder_size
+        return Image.new("RGB", (w, h), color=(32, 32, 32))
+
+    @staticmethod
     def _load_overlay_image(path: Optional[str]):
         """Load ``overlayed_all.png`` (or ``None``) into a PIL ``RGB`` image.
 
@@ -256,14 +241,6 @@ class Qwen25VLLabeler:
         if path is not None and os.path.isfile(path):
             return Image.open(path).convert("RGB")
         return Image.new("RGB", (256, 256), color=(0, 0, 0))
-
-    @staticmethod
-    def _file_uri(abs_path: str) -> str:
-        """Build a ``file://`` URI that qwen-vl-utils understands on any OS."""
-        path = os.path.abspath(abs_path).replace("\\", "/")
-        if not path.startswith("/"):
-            path = "/" + path                # Windows: file:///C:/...
-        return f"file://{path}"
 
     @staticmethod
     def _postprocess(text: str) -> str:
@@ -292,74 +269,59 @@ class Qwen25VLLabeler:
     # ------------------------------------------------------------------ inference
     def describe_step(
         self,
+        prev_depth_path: Optional[str],
         overlay_path: Optional[str],
-        final_snapshot_path: Optional[str] = None,
+        final_snapshot_path: Optional[str],
         debug_overlay_save_path: Optional[str] = None,
         params_json_text: Optional[str] = None,
     ) -> str:
-        """Run one MLLM forward pass for a single modeling step.
+        """Phase 1: painter caption for ``overlayed_all`` given depth + final + JSON.
 
-        Parameters
-        ----------
-        overlay_path:
-            Absolute path to the step's ``overlayed_all.png`` (the 4-in-1
-            composite produced by data prep). ``None`` => fall back to a
-            black placeholder; the call will still complete but the result
-            is meaningless. The caller is expected to log this case.
-        final_snapshot_path:
-            Optional path to the part's ``final_snapshot.png``. If provided
-            it is shown AFTER the overlay as supplementary context with an
-            explicit text label so the model does not confuse it with the
-            primary input. **Off by default**.
-        debug_overlay_save_path:
-            If set, copy the overlay we send to Qwen to this path. Useful
-            for offline visual QA of what the model sees.
-        params_json_text:
-            Optional pretty-printed JSON string of ground-truth operation
-            parameters. Injected into the user turn as an authoritative
-            text block right before the final instruction, wrapped in a
-            fenced markdown code block so the model can parse it cleanly.
-
-        Returns
-        -------
-        str
-            A cleaned-up single-sentence description in the format
-            ``"<Operation>: Based on <sketch/ref>, generated <changes>."``.
+        Image order in chat: prev depth → final snapshot → ground-truth overlay target.
         """
         torch = self._torch
 
-        # ---- 1) Load the overlay PNG ----
+        prev_rgb = self._load_image_rgb(prev_depth_path)
         overlay = self._load_overlay_image(overlay_path)
+        final_rgb = self._load_image_rgb(final_snapshot_path)
+
         if debug_overlay_save_path is not None:
             parent = os.path.dirname(debug_overlay_save_path)
             if parent:
                 os.makedirs(parent, exist_ok=True)
             overlay.save(debug_overlay_save_path)
 
-        # ---- 2) Compose the chat messages ----
-        # qwen-vl-utils handles PIL images in the "image" field directly.
         user_content: List[dict] = [
-            {"type": "image", "image": overlay},
-        ]
-        if final_snapshot_path is not None and os.path.isfile(final_snapshot_path):
-            user_content.append({
+            {
                 "type": "text",
                 "text": (
-                    "Supplementary global context: the part's final shape "
-                    "(NOT part of the overlay above)."
+                    "Image (A) — `prev_depth_map.png`: clean geometry *before* this step "
+                    "(grayscale depth; painter starts from here)."
                 ),
-            })
-            user_content.append({"type": "image", "image": self._file_uri(final_snapshot_path)})
+            },
+            {"type": "image", "image": prev_rgb},
+            {
+                "type": "text",
+                "text": (
+                    "Image (B) — `final_snapshot.png`: global target appearance of the finished part."
+                ),
+            },
+            {"type": "image", "image": final_rgb},
+            {
+                "type": "text",
+                "text": (
+                    "Image (C) — `overlayed_all.png`: **ground-truth** painter target for this step "
+                    "(masks + wireframe your text must explain)."
+                ),
+            },
+            {"type": "image", "image": overlay},
+        ]
 
-        # Inject ground-truth operation parameters AFTER the image(s) but
-        # BEFORE the final user instruction. The system prompt already
-        # designates this JSON as authoritative.
         if params_json_text:
             user_content.append({
                 "type": "text",
                 "text": (
-                    "GROUND-TRUTH OPERATION PARAMETERS (authoritative; "
-                    "use to ground your description):\n"
+                    "Authoritative operation parameters (facts only — do not quote numbers or IDs in your reply):\n"
                     "```json\n" + params_json_text + "\n```"
                 ),
             })
@@ -371,7 +333,6 @@ class Qwen25VLLabeler:
             {"role": "user", "content": user_content},
         ]
 
-        # ---- 3) Tokenize + pack vision inputs ----
         text = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
@@ -384,7 +345,6 @@ class Qwen25VLLabeler:
             return_tensors="pt",
         ).to(self.model.device)
 
-        # ---- 4) Greedy decode ----
         with torch.inference_mode():
             generated_ids = self.model.generate(
                 **inputs,
@@ -392,7 +352,6 @@ class Qwen25VLLabeler:
                 do_sample=False,
             )
 
-        # Slice off prompt tokens, decode, post-process.
         generated_trimmed = [
             out_ids[len(in_ids):]
             for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -487,6 +446,11 @@ def discover_step_indices(view_dir: str) -> List[int]:
     return indices
 
 
+def collect_prev_depth(step_dir: str) -> Optional[str]:
+    path = os.path.join(step_dir, PREV_DEPTH_FILENAME)
+    return os.path.abspath(path) if os.path.isfile(path) else None
+
+
 def collect_step_overlay(step_dir: str) -> Optional[str]:
     """Return absolute path to ``overlayed_all.png`` in this step folder, or ``None``."""
     path = os.path.join(step_dir, OVERLAYED_FILENAME)
@@ -570,6 +534,25 @@ def run(cfg: LabelerConfig) -> None:
             failures += 1
             continue
 
+        prev_depth_path = collect_prev_depth(step_dir)
+        if prev_depth_path is None:
+            logger.warning("Missing %s in %s — using placeholder.", PREV_DEPTH_FILENAME, step_dir)
+
+        final_snapshot = os.path.join(
+            cfg.data_root,
+            f"{part_id}_{MVP_VIEW_SUFFIX}",
+            I_FINAL_FILENAME,
+        )
+        if not os.path.isfile(final_snapshot):
+            logger.warning(
+                "Missing %s for part %s — using placeholder.",
+                I_FINAL_FILENAME,
+                part_id,
+            )
+            final_snapshot_path: Optional[str] = None
+        else:
+            final_snapshot_path = final_snapshot
+
         params_text: Optional[str] = None
         if cfg.include_operation_params:
             params_text = load_operation_params(
@@ -581,16 +564,6 @@ def run(cfg: LabelerConfig) -> None:
             if params_text is None:
                 missing_params += 1
 
-        final_snapshot: Optional[str] = None
-        if cfg.include_final_snapshot:
-            cand = os.path.join(
-                cfg.data_root,
-                f"{part_id}_{MVP_VIEW_SUFFIX}",
-                I_FINAL_FILENAME,
-            )
-            if os.path.isfile(cand):
-                final_snapshot = cand
-
         debug_save: Optional[str] = None
         if cfg.debug_overlay_dir:
             debug_save = os.path.join(
@@ -600,8 +573,9 @@ def run(cfg: LabelerConfig) -> None:
 
         try:
             description = labeler.describe_step(
+                prev_depth_path=prev_depth_path,
                 overlay_path=overlay_path,
-                final_snapshot_path=final_snapshot,
+                final_snapshot_path=final_snapshot_path,
                 debug_overlay_save_path=debug_save,
                 params_json_text=params_text,
             )
@@ -684,8 +658,6 @@ def _parse_args() -> LabelerConfig:
                    help="Upper bound on overlay pixel count after Qwen smart-resize.")
     p.add_argument("--overwrite", action="store_false",
                    help="Re-generate even if prompt.txt already exists.")
-    p.add_argument("--include-final-snapshot", action="store_false",
-                   help="Also pass final_snapshot.png (global part render) to Qwen.")
     p.add_argument("--no-flash-attn", action="store_true",
                    help="Disable flash-attention-2 (use vanilla SDPA).")
     p.add_argument("--max-parts", type=int, default=None,
@@ -707,7 +679,6 @@ def _parse_args() -> LabelerConfig:
         min_pixels=args.min_pixels,
         max_pixels=args.max_pixels,
         overwrite=args.overwrite,
-        include_final_snapshot=args.include_final_snapshot,
         use_flash_attention=not args.no_flash_attn,
         max_parts=args.max_parts,
         debug_overlay_dir=args.debug_overlay_dir,

@@ -9,6 +9,8 @@ This dataset is designed to train the "Vision-Based CAD Modeling Step Reverse Ge
 
 2. Directory Structure
 root
+ ├─ main_ref_depth.png 
+ │
  ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
  │   ├─ roll_back_index_1 
  │   │   ├─ prev_depth_map.png 
@@ -29,6 +31,8 @@ root
  ...
 
 3. File Definitions
+  main_ref_depth.png: A depth map containing only the primary reference plane, representing the state prior to modeling.
+
 3.1 Sequence-Level Files
 Located in the root directory of the [CAD_PART_ID]_[VIEW_SUFFIX] folder, representing the final global state of the part.
 
