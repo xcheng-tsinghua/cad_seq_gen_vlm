@@ -792,6 +792,71 @@ Rule A: Color Mask Encoding (颜色掩码绝对对应法则)
 
 
 
+-----------------------------------------------
+CAD Reverse Modeling Dataset Specification
+
+1. Overview
+This dataset is designed to train the "Vision-Based CAD Modeling Step Reverse Generation System". The dataset records every step of the CAD feature modeling process, from a blank slate to the final part. The current phase primarily validates single-view rendering and generation, but the file system retains an extensible structure for multi-view data.
+
+2. Directory Structure
+root
+ ├─ main_ref_depth.png 
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
+ │   ├─ roll_back_index_1 
+ │   │   ├─ prev_depth_map.png 
+ │   │   ├─ operation_param.json
+ │   │   └─ overlayed_all.png
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   │
+ │   ├─ ...
+ │   │
+ │   └─ final_snapshot.png
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., NNN)
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ...
+
+3. File Definitions
+  main_ref_depth.png: A depth map containing only the primary reference plane, representing the state prior to modeling.
+
+3.1 Sequence-Level Files
+Located in the root directory of the [CAD_PART_ID]_[VIEW_SUFFIX] folder, representing the final global state of the part.
+
+  final_snapshot.png: The color rendered image of the final part from this specific view. Purpose: Serves as the Global Context, fed into the MLLM to help it understand the macroscopic location of local features; also used as the reference input for the Diffusion model's IP-Adapter.
+
+3.2 Step-Level Files
+Located within the roll_back_index_{i} folders, representing the state changes at the i-th operational step.
+
+  prev_depth_map.png: The depth map (grayscale) of the existing model before the current modeling operation is executed. Purpose: Serves as the spatial condition input for the ControlNet in the Diffusion model, providing a "clean geometric base".
+
+  operation_param.json: The ground-truth parameters of the current modeling step (including operation type modeling_type, depth, construct_type, etc.). Purpose: Provides absolutely accurate underlying logic for the MLLM to generate training prompts, eliminating visual ambiguity.
+
+  overlayed_all.png: (Core File) The 4-in-1 Alpha blended composite image. A human-vision-friendly image created by overlaying the base depth map, sketch plane mask, reference mask, and colored incremental wireframe. Purpose: Serves as the "local context" image for the MLLM to understand the current operational step, and also functions as the Target image for the Diffusion model's image generation.
+
+4. Global Core Rules & Visual Anchors
+Rule A: Color Mask Encoding
+  In overlayed_all.png, colors represent unique topological, geometric, and physical meanings:
+
+  Semi-Transparent Yellow masked area: Sketch Plane.
+
+  Semi-Transparent Cyan masked area: Reference Geometry (e.g., Path / Axis of Revolution).
+
+  Red (Solid Line): Reference 2D Sketch used in the current operation.
+
+  Green (Solid Line): Edges of the newly added solid entity in this step (Added Solid Entity / construct_type: "NEW", "ADD", ...).
+
+  Magenta (Solid Line): Edges of the entity cut or removed in this step (Removed Entity / construct_type: "CUT", "REMOVE", ...).
+
+  Blue (Solid Line): The termination face contour of the extrusion/sweep in this step (Termination Face).
+
+
+
+
 -------------------------------
 SYSTEM_PROMPT = """You are an expert in CAD reverse engineering. I will provide up to two images and a JSON block for one incremental step in a CAD modeling sequence:
 1. [Global Context] (optional): The final rendered image of the complete CAD part.
@@ -832,6 +897,8 @@ For example:
 
 
 ------------------------------
+
+
 # System Architecture & Workflow Handover: Single-View CAD Reverse Modeling MVP (Minimum Viable Product)
 
 ## 1. Project Overview
@@ -888,6 +955,154 @@ Please review, check, and update the codebase to ensure it strictly follows thes
 3. **Audit `train_sdxl.py` (Phase 2):** Ensure ControlNet receives `prev_depth_map` while the target is `overlayed_all`.
 4. **Audit/Create `train_qwen.py` (Phase 3):** Set up the SFT loop for Qwen2.5-VL without the JSON input.
 5. **Audit `inference.py` (Phase 4):** Ensure the autoregressive loop correctly passes outputs from Qwen to SDXL and handles the dummy CAD environment update.
+
+
+-----------------------------------------------------------------------
+我现在在做一个基于AI的CAD逆向工程的项目。根据一个CAD零件的某个视角渲染图，
+逆向推导它的构建过程（例如第一步拉伸创建基座，第二步拉伸切除创建定位孔，...）
+
+# 1. 建模操作的表达
+单个建模操作（拉伸、旋转、放样等）使用一张图（overlayed_all.png）表示，该图由以下四张图合并而来：
+1. prev_depth_map.png：当前建模操作执行前，模型的深度图
+2. sketch_plane_mask.png：指示草图基准面在prev_depth_map.png中的位置
+3. reference_mask.png：指示参考几何体（例如旋转操作的旋转轴，倒角操作的倒角边等）prev_depth_map.png中的位置
+4. result_frame.png： represents ONLY the **local feature** or **delta geometry** created/modified in this *specific* modeling step. It does NOT show the rest of the existing part.
+
+在 overlayed_all.png 中，颜色具备唯一的拓扑几何物理含义：
+Semi-Transparent-Masked Yellow (半透明亮黄色): 草图基准面 (Sketch Plane)。
+Semi-Transparent-Masked Cyan (半透明青色): 参考几何体 (e.g., 路径 / 旋转轴) (Reference Geometry/Axis/Path)。
+Red (纯红色线): 当前操作引用的二维草图 (Reference 2D Sketch)。
+Green (纯绿色线): 本步骤新增的实体边缘 (Added Solid Entity / construct_type: "NEW", "ADD", ...).
+Magenta (纯品红色线): 本步骤切除/移除的实体边缘 (Removed Entity / construct_type: "CUT", "REMOVE", ...).
+Blue (纯蓝色线): 本步骤拉伸/扫描的终止面轮廓 (Termination Face)。
+
+以上关于单个建模操作的表达方式，仿照人类建模过程设计，是这个项目的重点贡献之一，它解决了现有建模操作的基于 python-code-like 的代码表达方式无法使用参考几何体，且有大量数值需要回归的缺点，且图片相比文本，能更准确地描述建模步骤。
+但是目前也存在单视角对模型描述不全面的缺点，后续计划升级多视角。
+
+# 2. 建模系统结构
+## 2.1. 建模系统的构建与训练
+主要分为四步：1. 利用QWen（无需微调）生成每个建模步骤的文本提示词Label。2. 微调StableDiffusion，使其具备根据图片及文本提示词生成单个建模操作的overlayed_all.png的能力。3. 微调QWen，使其具备根据一张图片，生成一系列建模步骤文本提示词的能力。4. 推理时，QWen（微调后）通过输入的图片规划建模过程，StableDiffusion（微调后）根据建模过程提示词，输出逐步的建模操作的overlayed_all.png的能力。
+
+## 2.1.1. 生成每个建模步骤的文本提示词Label
+
+
+
+
+
+
+-----------------------------------------------------------------------
+# System Architecture & Workflow Handover: Single-View CAD Reverse Modeling MVP (Minimum Viable Product)
+
+## 1. Project Overview
+We are building a "Vision-Based CAD Modeling Step Reverse Generation System" (Single-View MVP). The core philosophy is **Semantic-Geometric Decoupling**: 
+- A Multi-Modal LLM (Qwen2.5-VL) acts as the **Planner**, deducing topological operations (text prompts).
+- A Diffusion Model (SDXL) acts as the **Renderer**, generating pixel-perfect geometry (masks and wireframes).
+
+---
+
+## 2. Experimental Workflow (The 4 Phases)
+
+Please review, check, and update the codebase to ensure it strictly follows these 4 phases. Remove any legacy code related to multi-view (e.g., 4x8 grids, cross-view attention) and ensure standard `diffusers` and `transformers` APIs are used.
+
+### Phase 1: Data Auto-Labeling (Qwen2.5-VL Inference for Dataset Creation)
+**Goal:** Generate ground-truth text prompts (`prompt.txt`) for SDXL training.
+- **Inputs:** 1. `final_snapshot.png` (Global Context)
+  2. `prev_depth_map.png` (Clean generation base)
+  3. `operation_param.json` (Factual Constraints)
+  4. `overlayed_all.png` (Target of the Painter)
+- **Prompting Rule:** You can provide QWen with a prompt similar to this: "A painter has been given two images — prev_depth_map.png, final_snapshot.png. You need to provide them with a description that enables them to paint overlayed_all.png. Your description MUST NOT include numerical dimensions or internal CAD element IDs".
+- **Output:** `prompt.txt` saved in the step directory.
+
+### Phase 2: Diffusion Model Fine-Tuning (SDXL + ControlNet + IP-Adapter)
+**Goal:** Train SDXL to render the geometric action based on the semantic prompt.
+- **Architecture:** Standard `StableDiffusionXLControlNetPipeline`.
+- **Inputs (Conditioning):**
+  1. **ControlNet:** `prev_depth_map.png` (Converted to 3-channel RGB. Provides the clean geometric base).
+  2. **IP-Adapter:** `final_snapshot.png` (Provides global shape reference).
+  3. **Text Encoder:** `prompt.txt` (Generated from Phase 1).
+- **Target (Loss Calculation):** `overlayed_all.png` of the CURRENT step.
+- **Task:** The model learns to draw the yellow/cyan masks and red/green/blue wireframes precisely onto the clean depth map.
+
+### Phase 3: MLLM Fine-Tuning (Qwen2.5-VL LoRA/SFT)
+**Goal:** Train Qwen to act as the autoregressive planner during actual inference, where `operation_param.json` is NO LONGER available.
+- **Inputs:**
+  1. `final_snapshot.png` (Target goal).
+  2. `prev_state_image` (This could be the `prev_depth_map.png` or the `overlayed_all.png` from the *previous* step, representing the current status).
+- **Target:** The `prompt.txt` for the NEXT immediate operation.
+- **Task:** Qwen learns to compare the current state with the final state and deduce the next logical CAD operation without needing the ground-truth JSON.
+
+### Phase 4: Autoregressive Inference Loop (The Final Pipeline)
+**Goal:** End-to-End reverse engineering of a novel CAD part.
+- **Initialization:** Given $I_{final}$ and an base $depth_0$ (main_ref_depth.png).  
+- **Step 1 (Plan):** Qwen (from Phase 3) takes $I_{final}$ and $depth_k$, predicting $Prompt_{k+1}$.
+- **Step 2 (Render):** SDXL (from Phase 2) takes $I_{final}$, $depth_k$, and $Prompt_{k+1}$, generating $G_{k+1}$ (`overlayed_all.png`).
+- **Step 3 (Execute):** A downstream CAD parser (outside the scope of these neural networks) reads $G_{k+1}$, performs the boolean operation, and renders a new clean $depth_{k+1}$.
+- **Loop:** Repeat until Qwen outputs a `<STOP>` token or the depth matches the final snapshot.
+
+
+-----------------------------------------------
+CAD Reverse Modeling Dataset Specification
+
+1. Overview
+This dataset is designed to train the "Vision-Based CAD Modeling Step Reverse Generation System". The dataset records every step of the CAD feature modeling process, from a blank slate to the final part. The current phase primarily validates single-view rendering and generation, but the file system retains an extensible structure for multi-view data.
+
+2. Directory Structure
+root
+ ├─ main_ref_depth.png 
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
+ │   ├─ roll_back_index_1 
+ │   │   ├─ prev_depth_map.png 
+ │   │   ├─ operation_param.json
+ │   │   └─ overlayed_all.png
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   │
+ │   ├─ ...
+ │   │
+ │   └─ final_snapshot.png
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., NNN)
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ...
+
+3. File Definitions
+  main_ref_depth.png: A depth map containing only the primary reference plane, representing the state prior to modeling.
+
+3.1 Sequence-Level Files
+Located in the root directory of the [CAD_PART_ID]_[VIEW_SUFFIX] folder, representing the final global state of the part.
+
+  final_snapshot.png: The color rendered image of the final part from this specific view. Purpose: Serves as the Global Context, fed into the MLLM to help it understand the macroscopic location of local features; also used as the reference input for the Diffusion model's IP-Adapter.
+
+3.2 Step-Level Files
+Located within the roll_back_index_{i} folders, representing the state changes at the i-th operational step.
+
+  prev_depth_map.png: The depth map (grayscale) of the existing model before the current modeling operation is executed. Purpose: Serves as the spatial condition input for the ControlNet in the Diffusion model, providing a "clean geometric base".
+
+  operation_param.json: The ground-truth parameters of the current modeling step (including operation type modeling_type, depth, construct_type, etc.). Purpose: Provides absolutely accurate underlying logic for the MLLM to generate training prompts, eliminating visual ambiguity.
+
+  overlayed_all.png: (Core File) The 4-in-1 Alpha blended composite image. A human-vision-friendly image created by overlaying the base depth map, sketch plane mask, reference mask, and colored incremental wireframe. Purpose: Serves as the "local context" image for the MLLM to understand the current operational step, and also functions as the Target image for the Diffusion model's image generation.
+
+4. Global Core Rules & Visual Anchors
+Rule A: Color Mask Encoding
+  In overlayed_all.png, colors represent unique topological, geometric, and physical meanings:
+
+  Semi-Transparent Yellow masked area: Sketch Plane.
+
+  Semi-Transparent Cyan masked area: Reference Geometry (e.g., Path / Axis of Revolution).
+
+  Red (Solid Line): Reference 2D Sketch used in the current operation.
+
+  Green (Solid Line): Edges of the newly added solid entity in this step (Added Solid Entity / construct_type: "NEW", "ADD", ...).
+
+  Magenta (Solid Line): Edges of the entity cut or removed in this step (Removed Entity / construct_type: "CUT", "REMOVE", ...).
+
+  Blue (Solid Line): The termination face contour of the extrusion/sweep in this step (Termination Face).
+
+
 
 
 

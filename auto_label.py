@@ -94,7 +94,7 @@ You may also see **authoritative operation parameters as JSON**. Use it only to 
 2. Do **not** include numerical dimensions (mm, degrees, counts, etc.).
 3. Do **not** name internal CAD element IDs, database keys, or opaque feature handles — use spatial relations and visible regions instead.
 4. Prefer no more than five tight sentences; no markdown, no bullet lists, no preamble.
-5. follow this structure: '[Operation Type]: [Description]"""
+5. follow this structure: '[Operation Type]: [Description], which corresponds to [the specific functional feature/location in the final rendered image]."""
 
 USER_INSTRUCTION = (
     "Write the painter-facing instruction text now — only the instruction, nothing else."
