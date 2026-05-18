@@ -643,7 +643,7 @@ def _parse_args() -> LabelerConfig:
     p.add_argument("--no-operation-params", action="store_true",
                    help="Disable feeding operation_param.json as authoritative "
                         "ground-truth context. (Default: ON.)")
-    p.add_argument("--operation-params-max-chars", type=int, default=4096,
+    p.add_argument("--operation-params-max-chars", type=int, default=5000,
                    help="Truncate the rendered JSON beyond this many characters. "
                         "(default: 4096)")
     p.add_argument("--model", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct",
@@ -652,7 +652,7 @@ def _parse_args() -> LabelerConfig:
                    help="cuda | cuda:0 | cpu | mps")
     p.add_argument("--dtype", type=str, default="bfloat16",
                    choices=["bfloat16", "float16", "float32"])
-    p.add_argument("--max-new-tokens", type=int, default=96,
+    p.add_argument("--max-new-tokens", type=int, default=300,
                    help="Max generated tokens (the new format is more verbose).")
     p.add_argument("--min-pixels", type=int, default=256 * 28 * 28)
     p.add_argument("--max-pixels", type=int, default=1408 * 28 * 28,
