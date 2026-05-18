@@ -4,7 +4,7 @@
 This project pins the HuggingFace cache to :data:`config.PRETRAINED_DIR` on
 import (``HF_HOME`` / ``HF_HUB_CACHE`` / etc.). Run this script once per
 machine (or after a partial download) to ensure every checkpoint that
-``train.py``, ``inference.py``, and ``auto_label.py`` need is present and
+``train_sd_painter.py``, ``inference.py``, and ``auto_label.py`` need is present and
 consistent with the remote revision.
 
 Default repos (edit ``config.ModelConfig`` / ``auto_label.LabelerConfig`` if

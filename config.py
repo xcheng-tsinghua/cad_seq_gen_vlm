@@ -2,7 +2,7 @@
 
 Workflow (4 phases):
 1. **Phase 1** — ``auto_label.py``: Qwen2.5-VL writes ``prompt.txt`` (painter instructions).
-2. **Phase 2** — ``train.py``: SDXL + ControlNet + IP-Adapter fits ``overlayed_all.png``.
+2. **Phase 2** — ``train_sd_painter.py``: SDXL + ControlNet + IP-Adapter fits ``overlayed_all.png``.
 3. **Phase 3** — ``train_qwen_planner.py`` + :mod:`qwen_planner_dataset`: planner SFT without JSON.
 4. **Phase 4** — ``inference.py``: planner + diffusion autoregressive loop.
 

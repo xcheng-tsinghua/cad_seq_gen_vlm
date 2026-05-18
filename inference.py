@@ -196,7 +196,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Initial clean depth map (e.g. main_ref_depth.png). If omitted, zeros + black state.",
     )
-    p.add_argument("--checkpoint", type=str, default=None, help="train.py output folder (trainables.pt).")
+    p.add_argument("--checkpoint", type=str, default=None, help="train_sd_painter.py output folder (trainables.pt).")
     p.add_argument("--output-dir", type=str, default="./generated")
     p.add_argument("--run-name", type=str, default="run")
     p.add_argument("--num-inference-steps", type=int, default=30)

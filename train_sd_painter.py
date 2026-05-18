@@ -13,7 +13,7 @@ of wrapping the full pipeline class.
 
 Usage::
 
-    accelerate launch train.py
+    accelerate launch train_sd_painter.py
 """
 
 from __future__ import annotations
