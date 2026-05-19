@@ -53,7 +53,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-drop-last", action="store_true", help="Keep final partial batch.")
     # --- Train (see TrainConfig)
     p.add_argument("--output-dir", type=str, default="./checkpoints")
-    p.add_argument("--train-batch-size", type=int, default=8)
+    p.add_argument("--train-batch-size", type=int, default=2)
     p.add_argument("--gradient-accumulation-steps", type=int, default=4)
     p.add_argument("--num-train-epochs", type=int, default=100)
     p.add_argument("--learning-rate", type=float, default=1e-4)
