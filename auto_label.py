@@ -102,7 +102,7 @@ SYSTEM_PROMPT = """You are helping train a neural "painter" for CAD reverse mode
 
 Setup: A painter is given (A) a clean depth-style geometry image — the state *before* this modeling step (`prev_depth_map`) — and (B) the final shaded part (`final_snapshot`). You need to teach the painter to paint a composite image that matches the ground-truth target (`overlayed_all`): yellow/cyan masks plus red/green/blue/magenta wireframe overlays on top of the depth base.
 
-You may also see authoritative operation parameters as JSON. Use it only to disambiguate operation *type* and *other specification (e.g., symmetric extrude, cutting off a portion by extrude)* — translate that into plain visual language. NEVER numerical dimensions (mm, degrees, counts, etc.) or internal CAD element IDs (JDC, JHl, etc.) from the JSON into your answer.
+You may also see authoritative operation parameters as JSON. Use it only to disambiguate operation *type* and *other specification (e.g., symmetric extrude, extrude add, extrude cut)*. NEVER use numerical dimensions (mm, degrees) or internal CAD element IDs in your answer.
 
 Wireframe semantics in the target overlay:
 - Red: reference 2D sketch driving this step.
@@ -110,18 +110,29 @@ Wireframe semantics in the target overlay:
 - Magenta: CUT / removed material edges.
 - Blue: termination / limit surface for the operation.
 
-mask semantics in the target overlay:
-- Semi-Yellow-Masked Cyan regions: sketch plane.
-- Semi-Cyan-Masked regions: sketch reference-geometry.
+Mask semantics in the target overlay:
+- Semi-Transparent Yellow Mask: sketch plane.
+- Semi-Transparent Cyan Mask: reference-geometry (e.g., revolve axis, sweep path).
 
-Hard rules for YOUR reply (the painter's instruction text):
-1. You MUST establish a Global-Local connection: describe what the local colored wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
-2. You MUST include the operation type (e.g., extrude, sweep) following this structure: [Operation Type]: [Description].
-3. Prefer one or two tight sentences; no markdown, no bullet lists, no preamble.
+Hard rules for YOUR reply:
+1. You MUST explicitly describe the CURRENT LOCAL GEOMETRY being constructed in this specific step (its 3D shape, spatial position, and physical direction).
+2. You MUST establish a Global-Local connection: explicitly state which specific feature/part of the FINAL CAD model this current step builds.
+3. You MUST structure your response EXACTLY into two XML blocks: <Reasoning> and <Structured_Prompt>. Do not output any preamble, markdown, or text outside these blocks.
+
+<Reasoning>
+1. Observation: Compare `prev_depth_map` and `final_snapshot` to identify the missing feature.
+2. Local Geometry & Intent: Look at `overlayed_all` and the JSON to analyze the specific 3D shape being built IN THIS STEP (e.g., horizontal cylinder extending inwards, rectangular slot cutting downwards). Describe how the colored lines/masks visually construct it.
+</Reasoning>
+
+<Structured_Prompt>
+Provide a strict, token-dense, pipe-separated (`|`) instruction for the painter.
+Format exactly like this template (write "None" if an element is not applicable):
+[Action]: <Operation Type (e.g., EXTRUDE_ADD)> | [Local_Geometry]: <Explicitly describe the exact 3D shape and spatial direction being created/modified in THIS step> | [Global_Context]: <Which feature of the FINAL model this corresponds to> | [Sketch_Plane]: Yellow Mask on <location, or 'None'> | [Reference]: Cyan Mask on <location, or 'None'> | [Profile]: Red <shape> sketch at <spatial location> | [Result_Edges]: <Green or Magenta> lines indicating <shape and direction of the edges> | [Termination]: Blue contour at <location, or 'None'>
+</Structured_Prompt>
 """
 
 USER_INSTRUCTION = (
-    "Write the painter-facing instruction text now — only the instruction, nothing else."
+    "Analyze the provided images and JSON. Output your reasoning and the painter-facing structured prompt strictly using the <Reasoning> and <Structured_Prompt> tags. Focus intensely on describing the LOCAL GEOMETRY being constructed in this specific step."
 )
 
 _STEP_RE = re.compile(rf"^{re.escape(STEP_DIR_PREFIX)}(\d+)$")
