@@ -76,25 +76,49 @@ from config import (
 # ===========================================================================
 
 # // Phase 1: painter metaphor + strict output constraints for SDXL captions.
+# SYSTEM_PROMPT = """You are helping train a neural "painter" for CAD reverse modeling.
+#
+# Setup: A painter is given (A) a clean depth-style geometry image — the state *before* this modeling step (`prev_depth_map`) — and (B) the final shaded part (`final_snapshot`). You need teach the painter to paint a composite image that matches the ground-truth target (`overlayed_all`): yellow/cyan masks plus red/green/blue/magenta wireframe overlays on top of the depth base.
+#
+# You may also see **authoritative operation parameters as JSON**. Use it only to disambiguate operation *type* and topology — translate that into plain visual language. **Never** copy numbers from the JSON into your answer.
+#
+# **Wireframe / mask semantics in the target overlay:**
+# - Red: reference 2D sketch driving this step.
+# - Green: edges of newly **added** solid material.
+# - Magenta: **cut** / removed material edges.
+# - Blue: termination / limit surface for the operation.
+# - Yellow / cyan regions: sketch plane and reference-geometry masks.
+#
+# **Hard rules for YOUR reply (the painter's instruction text):**
+# 1. Enable someone to paint `overlayed_all` on top of image (A) while staying consistent with global shape (B).
+# 2. Do **not** include numerical dimensions (mm, degrees, counts, etc.) and internal CAD element IDs (JDC, JHl, etc.).
+# 3. You MUST establish a Global-Local connection: describe what the local wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+# 4. Prefer one or two tight sentences; no markdown, no bullet lists, no preamble.
+# 5. follow this structure: '[Operation Type]: [Description], which corresponds to [the specific functional feature/location in the final rendered image].
+# """
+
+
 SYSTEM_PROMPT = """You are helping train a neural "painter" for CAD reverse modeling.
 
-Setup: A painter is given (A) a clean depth-style geometry image — the state *before* this modeling step (`prev_depth_map`) — and (B) the final shaded part (`final_snapshot`). They must learn to paint a composite image that matches the ground-truth target (`overlayed_all`): yellow/cyan masks plus red/green/blue/magenta wireframe overlays on top of the depth base.
+Setup: A painter is given (A) a clean depth-style geometry image — the state *before* this modeling step (`prev_depth_map`) — and (B) the final shaded part (`final_snapshot`). You need to teach the painter to paint a composite image that matches the ground-truth target (`overlayed_all`): yellow/cyan masks plus red/green/blue/magenta wireframe overlays on top of the depth base.
 
-You may also see **authoritative operation parameters as JSON**. Use it only to disambiguate operation *type* and topology — translate that into plain visual language. **Never** copy numbers from the JSON into your answer.
+You may also see authoritative operation parameters as JSON. Use it only to disambiguate operation *type* and *other specification (e.g., symmetric extrude, cutting off a portion by extrude)* — translate that into plain visual language. NEVER numerical dimensions (mm, degrees, counts, etc.) or internal CAD element IDs (JDC, JHl, etc.) from the JSON into your answer.
 
-**Wireframe / mask semantics in the target overlay:**
+Wireframe semantics in the target overlay:
 - Red: reference 2D sketch driving this step.
-- Green: edges of newly **added** solid material.
-- Magenta: **cut** / removed material edges.
+- Green: edges of newly ADDED solid material.
+- Magenta: CUT / removed material edges.
 - Blue: termination / limit surface for the operation.
-- Yellow / cyan regions: sketch plane and reference-geometry masks.
 
-**Hard rules for YOUR reply (the painter's instruction text):**
-1. Enable someone to paint `overlayed_all` on top of image (A) while staying consistent with global shape (B).
-2. Do **not** include numerical dimensions (mm, degrees, counts, etc.).
-3. Do **not** name internal CAD element IDs, database keys, or opaque feature handles — use spatial relations and visible regions instead.
-4. Prefer no more than five tight sentences; no markdown, no bullet lists, no preamble.
-5. follow this structure: '[Operation Type]: [Description], which corresponds to [the specific functional feature/location in the final rendered image]."""
+mask semantics in the target overlay:
+- Semi-Yellow-Masked Cyan regions: sketch plane.
+- Semi-Cyan-Masked regions: sketch reference-geometry.
+
+Hard rules for YOUR reply (the painter's instruction text):
+1. You MUST establish a Global-Local connection: describe what the local colored wireframe does, AND explicitly state which specific feature/part of the FINAL CAD model it corresponds to.
+2. You MUST include the operation type (e.g., extrude, sweep) following this structure: [Operation Type]: [Description].
+3. Prefer one or two tight sentences; no markdown, no bullet lists, no preamble.
+"""
 
 USER_INSTRUCTION = (
     "Write the painter-facing instruction text now — only the instruction, nothing else."

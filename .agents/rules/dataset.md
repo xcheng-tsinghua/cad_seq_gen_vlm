@@ -2,7 +2,7 @@
 trigger: always_on
 ---
 
-CAD Reverse Modeling Dataset Specification
+Vision-Based CAD Modeling Step Reverse Generation System Dataset Specification
 
 1. Overview
 This dataset is designed to train the "Vision-Based CAD Modeling Step Reverse Generation System". The dataset records every step of the CAD feature modeling process, from a blank slate to the final part. The current phase primarily validates single-view rendering and generation, but the file system retains an extensible structure for multi-view data.
@@ -14,6 +14,7 @@ root
  ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
  │   ├─ roll_back_index_1 
  │   │   ├─ prev_depth_map.png 
+ │   │   ├─ current_depth_map.png 
  │   │   ├─ operation_param.json
  │   │   └─ overlayed_all.png
  │   │
@@ -43,18 +44,22 @@ Located within the roll_back_index_{i} folders, representing the state changes a
 
   prev_depth_map.png: The depth map (grayscale) of the existing model before the current modeling operation is executed. Purpose: Serves as the spatial condition input for the ControlNet in the Diffusion model, providing a "clean geometric base".
 
+  current_depth_map.png: The depth map (grayscale) of the existing model after the current modeling operation is executed.
+
   operation_param.json: The ground-truth parameters of the current modeling step (including operation type modeling_type, depth, construct_type, etc.). Purpose: Provides absolutely accurate underlying logic for the MLLM to generate training prompts, eliminating visual ambiguity.
 
-  overlayed_all.png: (Core File) The 4-in-1 Alpha blended composite image. A human-vision-friendly image created by overlaying the base depth map, sketch plane mask, reference mask, and colored incremental wireframe. Purpose: Serves as the "local context" image for the MLLM to understand the current operational step, and also functions as the Target image for the Diffusion model's image generation.
+  overlayed_all.png: (Core File) The 4-in-1 Alpha blended composite image. A human-vision-friendly image created by overlaying the prev_depth_map, sketch_plane_mask, reference_mask, and colored_incremental_wireframe. Purpose: It is a preview image of a modeling operation, similar to those in modeling software. Serves as the "local context" image for the MLLM to understand the current operational step, and also functions as the Target image for the Diffusion model's image generation.
 
 4. Global Core Rules & Visual Anchors
 Rule A: Color Mask Encoding
   In overlayed_all.png, colors represent unique topological, geometric, and physical meanings:
 
+Mask:
   Semi-Transparent Yellow masked area: Sketch Plane.
 
   Semi-Transparent Cyan masked area: Reference Geometry (e.g., Path / Axis of Revolution).
 
+colored_incremental_wireframe:
   Red (Solid Line): Reference 2D Sketch used in the current operation.
 
   Green (Solid Line): Edges of the newly added solid entity in this step (Added Solid Entity / construct_type: "NEW", "ADD", ...).
