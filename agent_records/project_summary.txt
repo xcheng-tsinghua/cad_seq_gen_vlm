@@ -27,7 +27,7 @@ We are building a "Vision-Based CAD Modeling Step Reverse Generation System". Th
     2. **IP-Adapter:** `final_snapshot.png` (Provides global shape reference).
     3. **Text Encoder:** `prompt.txt` (Generated from Phase 1).
 - **Target (Loss Calculation):** `overlayed_all.png` of the CURRENT step.
-- **Task:** The model learns to draw the yellow/cyan masks and red/green/blue wireframes precisely onto the clean depth map.
+- **Task:** The model learns to draw the yellow/cyan masks and red/green/blue/magenta wireframes precisely onto the clean depth map.
 
 ### Phase 3: MLLM Fine-Tuning (Qwen2.5-VL LoRA/SFT)
 **Goal:** Train Qwen to act as the autoregressive planner during actual inference, where `operation_param.json` is NO LONGER available.
@@ -104,4 +104,37 @@ Rule A: Color Mask Encoding
     - Blue (Solid Line): The termination face contour of the extrusion/sweep in this step (Termination Face).
 
 
+
+
+------------- question
+1. 如何处理单视角的遮挡盲区 (Occlusions)
+在单视角验证成功后采用多视角。下游 CAD 解析引擎的构建：使用occt，对于接收到的 overlayed_all.png，先将其拆分为四张图：
+
+2. 单个建模操作的表达方式具体说明
+单个建模操作 (拉伸、旋转、放样等) 使用一张图 (overlayed_all.png) 表示，该图由以下四个图层合并而来：
+a) prev_depth_map.png：当前建模操作执行前，模型的深度图 (灰度图)
+b) sketch_plane_mask.png：指示草图基准面在 prev_depth_map 中的位置 (草图基准面位置为半透明亮黄色 (255,255,0,128)，其他位置透明)
+c) reference_mask.png：指示参考几何体（例如旋转操作的旋转轴，扫描操作的扫描路径等）在 prev_depth_map 中的位置 (参考几何体位置为半透明青色 (0,255,255,128)，其他位置透明)
+d) colored_incremental_wireframe.png： represents ONLY the **local feature** or **delta geometry** created/modified in this *specific* modeling step. It does NOT show the rest of the existing part. 该线框图包含四种颜色，每种颜色代表的含义如下：
+- Red (纯红色线) (255,0,0): 当前操作引用的二维草图 (Reference 2D Sketch)。
+- Green (纯绿色线) (0,255,0): 本步骤新增的实体边缘 (Added Solid Entity / construct_type: "NEW", "ADD", ...).
+- Magenta (纯品红色线) (255,0,255): 本步骤切除/移除的实体边缘 (Removed Entity / construct_type: "CUT", "REMOVE", ...).
+- Blue (纯蓝色线) (0,0,255): 本步骤拉伸/扫描的终止面轮廓 (Termination Face)。
+各图层叠加顺序 (从最底层到最上层): prev_depth_map -> reference_mask -> sketch_plane_mask -> colored_incremental_wireframe
+
+3. 如何将 overlayed_all 翻译成建模系统所需的指令
+3.1. 从 overlayed_all 中分离四个图层
+3.1.1. 分离 colored_incremental_wireframe.png 时，因为它在合并时处于最上层，未被任何其他像素遮挡，仅需将(255,0,0)，(0,255,0)，(0,0,255)，(255,0,255)位置的像素分离开 (建议使用 HSV 空间提取线框：不要在 RGB 空间判断红绿蓝线，应转换到 HSV 色彩空间设置色相 (Hue) 和饱和度 (Saturation) 的阈值提取，这比 RGB 空间抗噪能力强十倍。)
+
+3.1.2. 分离剩下三张图
+prev_depth_map.png 是由灰度图转为的 RGB 图，overlay_color只可能出现 (0,255,255), (255,255,0) 两种颜色，透明度固定为128。因为属于 prev_depth_map 的各个像素必然有 R=G=B ，利用该条件可筛选出被mask位置的像素。(无需逆推深度：在 Phase 4 中，你的系统上下文里其实已经保存着上一步完美的 prev_depth_map 数组。提取出 Mask 的布尔区域后，底下的深度值直接调用真实数据即可，千万不要用 $X = 2 \times B_{out}$ 去逆推生成图的深度，因为这会将 SDXL 的生成噪点放大两倍，导致 OCCT 建出的模型表面全是“麻点”。)
+由于overlay_color只能从 (0,255,255), (255,255,0) 两种颜色选，这两种颜色中，必然有某个通道数值为零，其它两个通道数值相等，叠加到的 prev_depth_map (R=G=B) 上后，必然有叠加后的像素值 (R,G,B) 中有两个是相等的，其它一个不等，而该像素在叠加前的 prev_depth_map 上对应的像素值，必然是那个不等的像素值的两倍，从而可以还原被 prev_depth_map 上被 mask 的部分。进一步可计算出 sketch_plane_mask 和 reference_mask.
+
+3.2. 从四个图层提取参数
+通过 sketch_plane_mask 获得草图基准面位置，然后将result_frame中的红色部分投影到 sketch_plane，然后做矫正，对齐，获得草图。
+参考几何体（例如旋转操作的旋转轴等）利用 reference_mask 定位。
+拉伸深度、旋转角度等通过尝试的办法获得成型实体终止面离纯蓝色线最近的参数。
+
+4. 不连续的建模步骤
+绘制草图这种建模步骤不创建实体，因此不显示，而且拉伸等操作引用的草图可由 colored_incremental_wireframe 的红色部分投影得到，因此未考虑。当然这可能导致一些特殊的建模操作不被支持，这些暂时不考虑，后续再优化。
 
