@@ -990,7 +990,7 @@ Blue (纯蓝色线): 本步骤拉伸/扫描的终止面轮廓 (Termination Face)
 
 
 
------------------------------------------------------------------------
+----------------------------------------------------------------------- summary
 # System Architecture & Workflow Handover: Single-View CAD Reverse Modeling MVP (Minimum Viable Product)
 
 ## 1. Project Overview
@@ -1001,9 +1001,6 @@ We are building a "Vision-Based CAD Modeling Step Reverse Generation System" (Si
 ---
 
 ## 2. Experimental Workflow (The 4 Phases)
-
-Please review, check, and update the codebase to ensure it strictly follows these 4 phases. Remove any legacy code related to multi-view (e.g., 4x8 grids, cross-view attention) and ensure standard `diffusers` and `transformers` APIs are used.
-
 ### Phase 1: Data Auto-Labeling (Qwen2.5-VL Inference for Dataset Creation)
 **Goal:** Generate ground-truth text prompts (`prompt.txt`) for SDXL training.
 - **Inputs:** 1. `final_snapshot.png` (Global Context)
@@ -1038,6 +1035,28 @@ Please review, check, and update the codebase to ensure it strictly follows thes
 - **Step 2 (Render):** SDXL (from Phase 2) takes $I_{final}$, $depth_k$, and $Prompt_{k+1}$, generating $G_{k+1}$ (`overlayed_all.png`).
 - **Step 3 (Execute):** A downstream CAD parser (outside the scope of these neural networks) reads $G_{k+1}$, performs the boolean operation, and renders a new clean $depth_{k+1}$.
 - **Loop:** Repeat until Qwen outputs a `<STOP>` token or the depth matches the final snapshot.
+
+
+### Downstream CAD parser
+对于接收到的 overlayed_all.png，先将其拆分为四张图：
+单个建模操作（拉伸、旋转、放样等）使用一张图（overlayed_all.png）表示，该图由以下四张图合并而来：
+1. prev_depth_map.png：当前建模操作执行前，模型的深度图
+2. sketch_plane_mask.png：指示草图基准面在prev_depth_map.png中的位置
+3. reference_mask.png：指示参考几何体（例如旋转操作的旋转轴，倒角操作的倒角边等）prev_depth_map.png中的位置
+4. result_frame.png： represents ONLY the **local feature** or **delta geometry** created/modified in this *specific* modeling step. It does NOT show the rest of the existing part.
+
+在 overlayed_all.png 中，颜色具备唯一的拓扑几何物理含义：
+Semi-Transparent-Masked Yellow (半透明亮黄色) (255,255,0): 草图基准面 (Sketch Plane)。
+Semi-Transparent-Masked Cyan (半透明青色) (0,255,255): 参考几何体 (e.g., 路径 / 旋转轴) (Reference Geometry/Axis/Path)。
+Red (纯红色线) (255,0,0): 当前操作引用的二维草图 (Reference 2D Sketch)。
+Green (纯绿色线) (0,255,0): 本步骤新增的实体边缘 (Added Solid Entity / construct_type: "NEW", "ADD", ...).
+Magenta (纯品红色线) (255,0,255): 本步骤切除/移除的实体边缘 (Removed Entity / construct_type: "CUT", "REMOVE", ...).
+Blue (纯蓝色线) (0,0,255): 本步骤拉伸/扫描的终止面轮廓 (Termination Face)。
+
+因此分离 result_frame.png 时，仅需将(255,0,0)，(0,255,0)，(0,0,255)，(255,0,255)位置的像素分离开
+分离剩下三张图：prev_depth_map.png 是由灰度图转为的 RGB 图，overlay_color只可能出现（0, 255, 255），（255, 0, 255）两种颜色，透明度固定为128。因为base_image的各个像素必然有R=G=B，利用该条件可筛选出被mask位置的像素，此外由于overlay_color只能从三种颜色选，某个通道为零，其它两个通道数值相等，叠加到特殊的base_image上必然有叠加后的像素值，有两个是相等的，其它一个不等，而该像素在叠加前的base_image上对应的像素值，必然是那个不等的像素值的两倍。
+
+通过 sketch_plane_mask 获得草图基准面位置，然后将result_frame中的红色部分投影到sketch_plane，然后做矫正，对齐，获得草图。参考几何体（例如旋转操作的旋转轴等）利用 reference_mask 定位，拉伸深度、旋转角度等通过尝试的办法获得成型实体终止面离纯蓝色线最近的参数。
 
 
 -----------------------------------------------
@@ -1104,6 +1123,24 @@ Rule A: Color Mask Encoding
 
 
 
+-----------------------------------------------------
+SYSTEM_PROMPT = """You are helping train a neural "painter" for CAD reverse modeling.
 
+Setup: A painter is given (A) a clean depth-style geometry image — the state *before* this modeling step (`prev_depth_map`) — and (B) the final shaded part (`final_snapshot`). They must learn to paint a composite image that matches the ground-truth target (`overlayed_all`): yellow/cyan masks plus red/green/blue/magenta wireframe overlays on top of the depth base.
 
+You may also see **authoritative operation parameters as JSON**. Use it only to disambiguate operation *type* and topology — translate that into plain visual language. **Never** copy numbers from the JSON into your answer.
+
+**Wireframe / mask semantics in the target overlay:**
+- Red: reference 2D sketch driving this step.
+- Green: edges of newly **added** solid material.
+- Magenta: **cut** / removed material edges.
+- Blue: termination / limit surface for the operation.
+- Yellow / cyan regions: sketch plane and reference-geometry masks.
+
+**Hard rules for YOUR reply (the painter's instruction text):**
+1. Enable someone to paint `overlayed_all` on top of image (A) while staying consistent with global shape (B).
+2. Do **not** include numerical dimensions (mm, degrees, counts, etc.).
+3. Do **not** name internal CAD element IDs, database keys, or opaque feature handles — use spatial relations and visible regions instead.
+4. Prefer no more than five tight sentences; no markdown, no bullet lists, no preamble.
+5. follow this structure: '[Operation Type]: [Description], which corresponds to [the specific functional feature/location in the final rendered image]."""
 
