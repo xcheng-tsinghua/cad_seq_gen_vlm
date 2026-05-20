@@ -169,3 +169,15 @@ USER_INSTRUCTION = (
 )
 
 
+-----------------------------------
+{
+    "operation": "type" (e.g., extrude_add, symmetric_extrude_cut, ...),
+    "sketch_description": “(p1_x, p1_y), ...",  // 用十个点绘制草图大概形状
+    "sketch_bbox": [ymin, xmin, ymax, xmax],
+    "reference_bbox": [[ymin, xmin, ymax, xmax], ...],  // 可能 0-N 个
+    "target_region_bbox": [ymin, xmin, ymax, xmax]
+}
+
+
+
+

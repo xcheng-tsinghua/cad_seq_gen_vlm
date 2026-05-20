@@ -687,7 +687,7 @@ def _parse_args() -> LabelerConfig:
                    help="cuda | cuda:0 | cpu | mps")
     p.add_argument("--dtype", type=str, default="bfloat16",
                    choices=["bfloat16", "float16", "float32"])
-    p.add_argument("--max-new-tokens", type=int, default=300,
+    p.add_argument("--max-new-tokens", type=int, default=1000,
                    help="Max generated tokens (the new format is more verbose).")
     p.add_argument("--min-pixels", type=int, default=256 * 28 * 28)
     p.add_argument("--max-pixels", type=int, default=1408 * 28 * 28,
