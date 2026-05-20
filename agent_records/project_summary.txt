@@ -169,6 +169,12 @@ SDXL格局这些指令，输出我需要的那个预览图
 
     3. **Text Encoder:** text prompt with fixed structure: [Operation_Type (can be obtained from instruction.json in Phase 1)]: final_snapshot中红框指示的本次建模所需构建的部分为本次建模操作所需构建的部分，你需要结合这个全局条件来分析后续任务。根据prev_depth_map中的黄色矩形指示的位置找到本次绘制草图的基准面，之后你以黄色覆盖精确的草图基准面。根据prev_depth_map中红色线框所指示的草图大致形状分析本次操作所需构建的精准的草图，之后你以红色绘制精准的草图。根据prev_depth_map中的青矩形指示的位置找到本次建模操作的参考几何体，之后你以青色覆盖精确的参考几何体位置。最后分析出本次操作所构建的实体，你需要以蓝色绘制本次建模操作构建的实体的终止面，如果本次操作是添加实体，你需要用绿色绘制其它成型线，如果是去除实体，你需要用洋红色绘制其它成型线.
 
+
+
+
+
+
+
 -------------------------
 # System Architecture & Workflow Handover: Vision-Based CAD Modeling Step Reverse Generation System
 
@@ -277,9 +283,9 @@ Located in the root directory of the [CAD_PART_ID]_[VIEW_SUFFIX] folder, represe
 3.2 Step-Level Files
 Located within the roll_back_index_{i} folders, representing the state changes at the i-th operational step.
 - prev_depth_map.png: The depth map (grayscale) of the existing model before the current modeling operation is executed. Purpose: Serves as the spatial condition input for the ControlNet in the Diffusion model, providing a "clean geometric base".
-- prev_depth_map_tag.png: 在 prev_depth_map 基础上以黄色矩形标记草图基准面位置，以青色矩形标记参考几何体位置，以红色线条描述大致草图外观.
+- prev_depth_map_tag.png: On prev_depth_map, mark the location of the sketch reference plane with a yellow rectangle, mark the location of the reference geometry with a cyan rectangle, and depict the approximate sketch shape using red lines.
 - current_depth_map.png: The depth map (grayscale) of the existing model after the current modeling operation is executed.
-- final_snapshot_tag.png: 在 final_snapshot 基础上以红色矩形标记本次建模操作所构建的实体在最终模型中的位置.
+- final_snapshot_tag.png: On final_snapshot, mark the location of the feature created by the current modeling operation within the final model using a red rectangle.
 - operation_param.json: The ground-truth parameters of the current modeling step (including operation type modeling_type, depth, construct_type, etc.). Purpose: Provides absolutely accurate underlying logic for the MLLM to generate training prompts, eliminating visual ambiguity.
 - overlayed_all.png: (**CORE FILE**) The 4-in-1 Alpha blended composite image, similar to the preview of modeling operation in CAD software. A human-vision-friendly image created by overlaying the prev_depth_map, sketch_plane_mask, reference_mask, and colored_incremental_wireframe. Purpose: It is a preview image of a modeling operation, similar to those in modeling software. Serves as the "local context" image for the MLLM to understand the current operational step, and also functions as the Target image for the Diffusion model's image generation.
 
