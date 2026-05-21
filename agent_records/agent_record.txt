@@ -1107,6 +1107,26 @@ colored_incremental_wireframe:
   Blue (Solid Line): The termination face contour of the extrusion/sweep in this step (Termination Face).
 
 
+----------------------------------------------
+我想先验证一下这个想法，用单视角先跑通，后续升级多视角。验证阶段prev_depth_map我想都用GT，这样downstream CAD parser我可以后续再实现，如果在这种情况下运行良好的话我再优化细节
+
+
+回顾这个方案时，我在想，既然多模态大模型（MLLM）这么牛，我能否直接让它输出操作的全部内容，而不是后续再接一个Diffusion大模型？我之前担心的是MLLM有些细节不好描述，因此只让MLLM输出一个几个大概的目标检测框，对应的json如下：
+{
+    "operation": "type" (e.g., extrude_add, symmetric_extrude_cut, ...),
+    "sketch_description": "sketch description" (describe the sketch counter by plain text),
+    "sketch_bbox": [ymin, xmin, ymax, xmax] (Draw a rectangle on the prev_depth_map to indicate the location of the sketch.) ,
+    "sketch_plane_bbox": [ymin, xmin, ymax, xmax] (Draw a rectangle on the prev_depth_map to indicate the location of the sketch plane.) ,
+    "reference_geom_bbox": [ymin, xmin, ymax, xmax] (Draw a rectangle on the prev_depth_map to indicate the location of reference geometry (e.g., revolve axis, sweep path).),
+    "target_region_bbox": [ymin, xmin, ymax, xmax] (Draw a rectangle on final_snapshot to indicate the position of the entity built in the current step on the final model.)
+}
+，后续接了一个Diffusion大模型渲染出具体细节，我在想能否让MLLM这么牛能否直接让它输出一系列点坐标，直接围出来对应的sketch_plane具体位置，以及reference_geom具体位置，草图也让他输出一系列点来描述，overlayed_all中的其它需要生成的部分也让他用一系列点来描述，这样我就省去了Diffusion大模型，而且MLLM也能输出很长的文本，这样是不是更好？我给你发送了一张Diffusion大模型需要生成的目标图，它需要在干净深度图（灰色）上输出带颜色的元素。
+
+
+
+
+
+
 
 
 
