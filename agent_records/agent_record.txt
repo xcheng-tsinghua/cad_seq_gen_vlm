@@ -1126,7 +1126,7 @@ colored_incremental_wireframe:
 根据我的如下新需求重构项目，可以随便增删项目目录中的代码
 
 
-
+我们该变了需求，sketch/other_counter/terminate_face_contour/sketch_plane_contour/reference_geom_contour的Ground Truth需要从The ground truth of instruction.json中转化而来，此外我们提供了全部的operation_type类别
 
 
 
