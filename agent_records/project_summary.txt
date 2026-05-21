@@ -473,7 +473,7 @@ We are building a "Vision-Based CAD Modeling Step Reverse Generation System": Us
     }
     "
 - **Outputs:** The `instruction.json` for the NEXT immediate operation.
-- **Loss:** operation_type: nll_loss. sketch/other_counter/terminate_face_contour/sketch_plane_contour/reference_geom_contour: Individually converted The NPCs into pixel maps using a differentiable approach, and the loss is then calculated against their respective Ground Truths (PNG images).
+- **Loss:** operation_type: nll_loss. sketch/other_counter/terminate_face_contour/sketch_plane_contour/reference_geom_contour: Individually converted The NPCs into pixel maps using a differentiable approach, their Ground Truths can be obtained by convert coordinates from the Ground Truth instruction.json to pixel maps.
 
 ### Phase 2: Autoregressive Inference Loop (The Final Pipeline)
 **Goal:** End-to-End reverse engineering of a novel CAD part.
@@ -495,14 +495,8 @@ root
  │   ├─ roll_back_index_1
  │   │   ├─ prev_depth_map.png (The depth map (grayscale) of the existing model before the current modeling operation is executed)
  │   │   ├─ current_depth_map.png (The depth map of the existing model after the current modeling operation is executed)
- │   │   ├─ sketch.png
- │   │   ├─ other_counter.png
- │   │   ├─ terminate_face_contour.png
- │   │   ├─ sketch_plane_contour.png
- │   │   ├─ reference_geom_contour.png
- │   │   ├─ target_region_bbox.png
  │   │   ├─ instruction.json
- │   │   ├─ operation_param.json (The ground-truth parameters of the current modeling step, including operation type modeling_type, depth, construct_type, etc.)
+ │   │   ├─ operation_param.json (The parameters of the current modeling step, including operation type modeling_type, depth, construct_type, etc.)
  │   │   └─ overlayed_all.png  (Similar to the preview of modeling operation in CAD software)
  │   │
  │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
