@@ -1,81 +1,61 @@
-"""Phase 3 — Qwen2.5-VL planner supervision rows (no ``operation_param.json``).
-
-Each sample teaches: given ``final_snapshot.png`` and a **current state** image,
-predict the **text prompt for the next modeling step** (the painter instruction
-stored in the *next* step's :data:`config.PROMPT_FILENAME`).
-
-``prev_state_mode`` controls how "current state" is defined:
-
-* ``"depth_before_next"`` — ``prev_depth_map.png`` inside the *next* step folder
-  (geometry immediately before that step's operation).
-* ``"overlay_after_prev"`` — ``overlayed_all.png`` from the *previous* step in the
-  sorted sequence (simulates painter canvas after the last op). The first step
-  uses :data:`config.MAIN_REF_DEPTH_FILENAME` at part root if present, else that
-  step's ``prev_depth_map.png``.
-
-// MVP: single-view ``*_PPP/`` trees only. No JSON in inputs — match Phase 4 where
-the planner must infer without CAD parameter dumps.
-"""
+"""Dataset loader for the Vision-Based CAD Modeling Step Reverse Generation System."""
 
 from __future__ import annotations
 
 import logging
 import os
+import re
+import json
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Tuple
-
+from typing import Dict, List, Optional, Tuple
+import torch
 from torch.utils.data import Dataset
+from PIL import Image
+from torchvision.transforms import functional as TF
 
 from config import (
     I_FINAL_FILENAME,
-    MAIN_REF_DEPTH_FILENAME,
-    MVP_VIEW_SUFFIX,
-    OVERLAYED_FILENAME,
     PREV_DEPTH_FILENAME,
-    PROMPT_FILENAME,
     STEP_DIR_PREFIX,
 )
 
 logger = logging.getLogger(__name__)
 
 _STEP_RE = re.compile(rf"^{re.escape(STEP_DIR_PREFIX)}(\d+)$")
-_PART_DIR_RE = re.compile(rf"^(?P<part>.+)_{re.escape(MVP_VIEW_SUFFIX)}$")
-
-PrevStateMode = Literal["depth_before_next", "overlay_after_prev"]
 
 
 @dataclass(frozen=True)
 class _PartRecord:
     part_id: str
+    view_suffix: str
     sorted_indices: Tuple[int, ...]
 
 
 class MLLMPlannerSFTDataset(Dataset):
-    """One row per transition: (I_final, prev_state) → caption for the next step."""
+    """Dataset for MLLM planner SFT. Loads final_snapshot, prev_depth_map, and instruction JSON."""
 
     def __init__(
         self,
         data_root: str,
-        prev_state_mode: PrevStateMode = "depth_before_next",
+        contour_size: Tuple[int, int] = (100, 100),
         part_ids_file: Optional[str] = None,
     ) -> None:
         super().__init__()
         self.data_root = data_root
-        self.prev_state_mode = prev_state_mode
+        self.contour_size = contour_size
         wl = self._load_whitelist(part_ids_file)
         self.parts = self._scan_parts(wl)
-        self.flat: List[Tuple[str, int, str, str, str]] = self._build_index()
+        self.flat = self._build_index()
+        
         if not self.flat:
             raise RuntimeError(
                 f"No planner SFT rows under {data_root!r}. "
-                f"Need {I_FINAL_FILENAME}, valid prev-state images, "
-                f"and non-empty {PROMPT_FILENAME} from Phase 1 (see prev_state_mode)."
+                f"Need {I_FINAL_FILENAME}, {PREV_DEPTH_FILENAME}, and instruction.json."
             )
         logger.info(
-            "MLLMPlannerSFTDataset: %d parts, %d transitions, mode=%s.",
+            "MLLMPlannerSFTDataset: %d parts, %d transitions.",
             len(self.parts),
             len(self.flat),
-            prev_state_mode,
         )
 
     @staticmethod
@@ -92,17 +72,15 @@ class MLLMPlannerSFTDataset(Dataset):
             full = os.path.join(self.data_root, name)
             if not os.path.isdir(full):
                 continue
-            m = _PART_DIR_RE.match(name)
-            if not m:
+            if "_" not in name:
                 continue
-            pid = m.group("part")
+            pid, view = name.rsplit("_", 1)
             if whitelist is not None and pid not in whitelist:
                 continue
             idxs = self._discover_step_indices(full)
             if not idxs:
-                logger.warning("Part %s: no roll_back steps; skipping.", pid)
                 continue
-            parts[pid] = _PartRecord(part_id=pid, sorted_indices=idxs)
+            parts[name] = _PartRecord(part_id=pid, view_suffix=view, sorted_indices=idxs)
         return parts
 
     @staticmethod
@@ -115,93 +93,182 @@ class MLLMPlannerSFTDataset(Dataset):
         out.sort()
         return tuple(out)
 
-    def _part_root(self, part_id: str) -> str:
-        return os.path.join(self.data_root, f"{part_id}_{MVP_VIEW_SUFFIX}")
-
-    def _step_dir(self, part_id: str, idx: int) -> str:
-        return os.path.join(self._part_root(part_id), f"{STEP_DIR_PREFIX}{idx}")
-
-    def _read_prompt(self, part_id: str, idx: int) -> Optional[str]:
-        path = os.path.join(self._step_dir(part_id, idx), PROMPT_FILENAME)
-        if not os.path.isfile(path):
-            return None
-        with open(path, "r", encoding="utf-8") as fp:
-            t = fp.read().strip()
-        return t or None
-
-    def _resolve_prev_state_path(
-        self,
-        part_id: str,
-        prev_idx: int,
-        next_idx: int,
-    ) -> Optional[str]:
-        if self.prev_state_mode == "depth_before_next":
-            p = os.path.join(self._step_dir(part_id, next_idx), PREV_DEPTH_FILENAME)
-            return os.path.abspath(p) if os.path.isfile(p) else None
-        # overlay_after_prev
-        main_ref = os.path.join(self._part_root(part_id), MAIN_REF_DEPTH_FILENAME)
-        if prev_idx < 0:
-            if os.path.isfile(main_ref):
-                return os.path.abspath(main_ref)
-            p0 = os.path.join(self._step_dir(part_id, next_idx), PREV_DEPTH_FILENAME)
-            return os.path.abspath(p0) if os.path.isfile(p0) else None
-        ov = os.path.join(self._step_dir(part_id, prev_idx), OVERLAYED_FILENAME)
-        return os.path.abspath(ov) if os.path.isfile(ov) else None
-
-    def _build_index(self) -> List[Tuple[str, int, str, str, str]]:
-        """Rows: (part_id, next_step_index, i_final_path, prev_state_path, target_text)."""
-        flat: List[Tuple[str, int, str, str, str]] = []
-        for part_id, rec in self.parts.items():
-            idxs = rec.sorted_indices
-            ifinal = os.path.join(self._part_root(part_id), I_FINAL_FILENAME)
-            if not os.path.isfile(ifinal):
-                logger.warning("Skipping part %s: missing %s", part_id, I_FINAL_FILENAME)
-                continue
-            ifinal_abs = os.path.abspath(ifinal)
-            for t in range(len(idxs)):
-                next_idx = idxs[t]
-                prev_seq_idx = t - 1
-                prev_roll = idxs[prev_seq_idx] if prev_seq_idx >= 0 else -1
-                st_path = self._resolve_prev_state_path(part_id, prev_roll, next_idx)
-                if st_path is None:
-                    logger.warning(
-                        "Skipping %s step %d: no prev_state image (mode=%s).",
-                        part_id,
-                        next_idx,
-                        self.prev_state_mode,
-                    )
-                    continue
-                tgt = self._read_prompt(part_id, next_idx)
-                if not tgt:
-                    logger.warning(
-                        "Skipping %s step %d: empty/missing %s — run Phase 1 auto_label.",
-                        part_id,
-                        next_idx,
-                        PROMPT_FILENAME,
-                    )
-                    continue
-                flat.append((part_id, next_idx, ifinal_abs, st_path, tgt))
+    def _build_index(self) -> List[Tuple[str, str, int]]:
+        """Rows: (part_dir_name, part_id, step_index)."""
+        flat: List[Tuple[str, str, int]] = []
+        for name, rec in self.parts.items():
+            for idx in rec.sorted_indices:
+                flat.append((name, rec.part_id, idx))
         return flat
 
     def __len__(self) -> int:
         return len(self.flat)
 
+    @staticmethod
+    def quantize_coordinates(coords, max_val=100):
+        out = []
+        for pt in coords:
+            if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                continue
+            x, y = pt[0], pt[1]
+            if x > 100 or y > 100:
+                x = int(round(x / 10.0))
+                y = int(round(y / 10.0))
+            x = max(0, min(max_val, x))
+            y = max(0, min(max_val, y))
+            out.append([x, y])
+        return out
+
+    @staticmethod
+    def quantize_bbox(bbox, max_val=100):
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            return [0, 0, 0, 0]
+        out = []
+        for val in bbox:
+            if val > 100:
+                val = int(round(val / 10.0))
+            val = max(0, min(max_val, val))
+            out.append(val)
+        return out
+
+    @staticmethod
+    def serialize_instruction_with_spans(inst: dict) -> Tuple[str, dict]:
+        spans = {
+            "sketch (red)": [],
+            "other_counter (green / magenta)": [],
+            "terminate_face_contour (blue)": [],
+            "sketch_plane_contour (yellow)": [],
+            "reference_geom_contour (cyan)": [],
+            "target_region_bbox (red)": []
+        }
+        
+        curr_str = "{\n"
+        curr_str += f'    "operation_type": "{inst["operation_type"]}",\n'
+        
+        for key in ["sketch (red)", "other_counter (green / magenta)", "terminate_face_contour (blue)", "sketch_plane_contour (yellow)", "reference_geom_contour (cyan)"]:
+            curr_str += f'    "{key}": ['
+            coords = inst.get(key, [])
+            for idx, (x, y) in enumerate(coords):
+                curr_str += "["
+                
+                # Record span for x
+                x_str = str(x)
+                start_x = len(curr_str)
+                curr_str += x_str
+                end_x = len(curr_str)
+                spans[key].append((start_x, end_x))
+                
+                curr_str += ","
+                
+                # Record span for y
+                y_str = str(y)
+                start_y = len(curr_str)
+                curr_str += y_str
+                end_y = len(curr_str)
+                spans[key].append((start_y, end_y))
+                
+                curr_str += "]"
+                if idx < len(coords) - 1:
+                    curr_str += ", "
+            curr_str += "],\n"
+            
+        curr_str += '    "target_region_bbox (red)": ['
+        bbox = inst.get("target_region_bbox (red)", [])
+        for idx, val in enumerate(bbox):
+            val_str = str(val)
+            start_val = len(curr_str)
+            curr_str += val_str
+            end_val = len(curr_str)
+            spans["target_region_bbox (red)"].append((start_val, end_val))
+            if idx < len(bbox) - 1:
+                curr_str += ", "
+        curr_str += "]\n}"
+        
+        return curr_str, spans
+
     def __getitem__(self, i: int) -> Dict[str, object]:
-        part_id, next_idx, ifinal, pstate, text = self.flat[i]
+        part_name, part_id, idx = self.flat[i]
+        part_dir = os.path.join(self.data_root, part_name)
+        step_dir = os.path.join(part_dir, f"{STEP_DIR_PREFIX}{idx}")
+        
+        final_snapshot_path = os.path.join(part_dir, I_FINAL_FILENAME)
+        prev_depth_path = os.path.join(step_dir, PREV_DEPTH_FILENAME)
+        instruction_path = os.path.join(step_dir, "instruction.json")
+        
+        # Load and parse instruction.json
+        if os.path.isfile(instruction_path):
+            try:
+                with open(instruction_path, "r", encoding="utf-8") as f:
+                    raw_inst = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading {instruction_path}: {e}")
+                raw_inst = {}
+        else:
+            raw_inst = {}
+            
+        inst = {}
+        inst["operation_type"] = raw_inst.get("operation_type", "none")
+        inst["sketch (red)"] = self.quantize_coordinates(raw_inst.get("sketch (red)", raw_inst.get("sketch", [])))
+        inst["other_counter (green / magenta)"] = self.quantize_coordinates(raw_inst.get("other_counter (green / magenta)", raw_inst.get("other_counter", [])))
+        inst["terminate_face_contour (blue)"] = self.quantize_coordinates(raw_inst.get("terminate_face_contour (blue)", raw_inst.get("terminate_face_contour", [])))
+        inst["sketch_plane_contour (yellow)"] = self.quantize_coordinates(raw_inst.get("sketch_plane_contour (yellow)", raw_inst.get("sketch_plane_contour", [])))
+        inst["reference_geom_contour (cyan)"] = self.quantize_coordinates(raw_inst.get("reference_geom_contour (cyan)", raw_inst.get("reference_geom_contour", [])))
+        inst["target_region_bbox (red)"] = self.quantize_bbox(raw_inst.get("target_region_bbox (red)", raw_inst.get("target_region_bbox", [0, 0, 0, 0])))
+        
+        # Serialize to formatted instruction JSON string and get spans
+        inst_text, spans = self.serialize_instruction_with_spans(inst)
+        
+        # Load the 5 contour PNGs
+        contours = {}
+        contour_filenames = {
+            "sketch": "sketch.png",
+            "other_counter": "other_counter.png",
+            "terminate_face_contour": "terminate_face_contour.png",
+            "sketch_plane_contour": "sketch_plane_contour.png",
+            "reference_geom_contour": "reference_geom_contour.png"
+        }
+        
+        for key, fname in contour_filenames.items():
+            cpath = os.path.join(step_dir, fname)
+            if os.path.isfile(cpath):
+                try:
+                    with Image.open(cpath) as img:
+                        img_gray = img.convert("L").resize(self.contour_size, Image.Resampling.BILINEAR)
+                        t = TF.to_tensor(img_gray)
+                except Exception as e:
+                    logger.error(f"Error reading {cpath}: {e}")
+                    t = torch.zeros(1, self.contour_size[0], self.contour_size[1], dtype=torch.float32)
+            else:
+                t = torch.zeros(1, self.contour_size[0], self.contour_size[1], dtype=torch.float32)
+            contours[key] = t
+            
         return {
             "part_id": part_id,
-            "next_step_index": next_idx,
-            "i_final_path": ifinal,
-            "prev_state_path": pstate,
-            "target_prompt": text,
+            "step_index": idx,
+            "final_snapshot_path": final_snapshot_path,
+            "prev_depth_path": prev_depth_path,
+            "instruction": inst,
+            "instruction_text": inst_text,
+            "spans": spans,
+            "contours": contours,
         }
 
 
 def collate_planner_batch(batch: List[Dict[str, object]]) -> Dict[str, object]:
-    return {
+    res = {
         "part_id": [b["part_id"] for b in batch],
-        "next_step_index": [b["next_step_index"] for b in batch],
-        "i_final_path": [b["i_final_path"] for b in batch],
-        "prev_state_path": [b["prev_state_path"] for b in batch],
-        "target_prompt": [b["target_prompt"] for b in batch],
+        "step_index": [b["step_index"] for b in batch],
+        "final_snapshot_path": [b["final_snapshot_path"] for b in batch],
+        "prev_depth_path": [b["prev_depth_path"] for b in batch],
+        "instruction": [b["instruction"] for b in batch],
+        "instruction_text": [b["instruction_text"] for b in batch],
+        "spans": [b["spans"] for b in batch],
     }
+    
+    # Collate contours
+    contour_keys = ["sketch", "other_counter", "terminate_face_contour", "sketch_plane_contour", "reference_geom_contour"]
+    res["contours"] = {
+        k: torch.stack([b["contours"][k] for b in batch], dim=0)
+        for k in contour_keys
+    }
+    return res

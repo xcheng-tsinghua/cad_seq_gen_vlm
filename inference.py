@@ -1,243 +1,266 @@
-"""Phase 4 — Autoregressive single-view reverse modeling loop (MVP).
-
-Semantic–geometric split:
-
-* **Planner** (Qwen after Phase 3, or mock here): ``(I_final, state_k) → Prompt_{k+1}``.
-* **Renderer** (SDXL + ControlNet + IP-Adapter after Phase 2): ``(I_final, depth_k, prompt) → G_{k+1}``
-  (painter-style ``overlayed_all``).
-
-**Initialization:** ``final_snapshot`` + base depth ``depth_0`` (``main_ref_depth.png`` or explicit path).
-Each iteration:
-
-1. **Plan** — planner proposes the next painter instruction (no ``operation_param.json`` at inference).
-2. **Render** — diffusion predicts the overlay composite conditioned on ``depth_k``.
-3. **Execute** — CAD boolean + re-render of ``depth_{k+1}`` is **out of scope**; this script chains steps by
-   reusing the generated overlay RGB as the planner ``state_{k+1}`` and approximates the next ControlNet map
-   from overlay luminance (closing the loop requires your CAD kernel).
-
-Stop when the planner returns :data:`config.PLANNER_STOP_TOKEN` or ``max_steps`` is hit.
-
-// MVP Refactor: no multi-tile grids; standard ``CADSingleViewPipeline`` (diffusers ControlNet + IP-Adapter).
-
-Run::
-
-    python inference.py \\
-        --i-final path/to/final_snapshot.png \\
-        --depth-0 path/to/main_ref_depth.png \\
-        --checkpoint ./checkpoints/final \\
-        --output-dir ./generated/part_demo
-"""
+"""Phase 2 — Autoregressive reverse modeling planner inference & simulation (MVP)."""
 
 from __future__ import annotations
 
 import argparse
 import os
-from dataclasses import dataclass
-from typing import List, Optional, Union
+import re
+import json
+import logging
+from typing import List, Optional, Dict
 
 import torch
 from PIL import Image
-from torchvision import transforms
-from torchvision.transforms import functional as TF
 
-from config import IFINAL_H, IFINAL_W, ModelConfig, PLANNER_STOP_TOKEN, TRAIN_IMAGE_H, TRAIN_IMAGE_W
-from models import CADSingleViewPipeline
+# Fixed instruction template for prompt construction
+FIXED_USER_PROMPT = (
+    "NPC (normalized pixel coordinate): Divide the image into 1000 equal units on both sides, and "
+    "represent the position of a point in the image with an integer pair (int_x, int_y) in the range [0, 100].\n"
+    "CCL-Shape (current modeling operation constructed local shape).\n"
+    "Based on the part final image and the current part depth map, plan the next operation and output "
+    "the following instruction in JSON format:\n"
+    "{\n"
+    '    "operation_type": "type",\n'
+    '    "sketch (red)": [[x1,y1], ...],\n'
+    '    "other_counter (green / magenta)": [[x1,y1], ...],\n'
+    '    "terminate_face_contour (blue)": [[x1,y1], ...],\n'
+    '    "sketch_plane_contour (yellow)": [[x1,y1], ...],\n'
+    '    "reference_geom_contour (cyan)": [[x1,y1], ...],\n'
+    '    "target_region_bbox (red)": [ymin, xmin, ymax, xmax]\n'
+    "}"
+)
 
-
-# -----------------------------------------------------------------------------
-# Phase 4 — Planner interface (Phase 3 checkpoint would plug in here)
-# -----------------------------------------------------------------------------
-class MLLMPlanner:
-    def predict_next(self, i_final: Image.Image, state: Image.Image) -> str:
-        raise NotImplementedError
-
-
-class MockMLLMPlanner(MLLMPlanner):
-    """Deterministic stub until a fine-tuned Qwen is loaded."""
-
-    def __init__(self, mock_steps: Optional[List[str]] = None) -> None:
-        self._steps = list(mock_steps or [
-            "Sketch a rectangle on the base plane using red guide curves, add yellow sketch-plane tint.",
-            "Extrude that profile into a green boss capped by a blue termination face toward the front mass.",
-            "Cut a magenta pocket from the top using the red loop on the upper face.",
-        ])
-
-    def predict_next(self, i_final: Image.Image, state: Image.Image) -> str:
-        del i_final, state
-        if not self._steps:
-            return PLANNER_STOP_TOKEN
-        return self._steps.pop(0)
+logger = logging.getLogger(__name__)
 
 
-def _save_image_tensor(tensor_chw: torch.Tensor, path: str) -> None:
-    x = (tensor_chw.detach().float().cpu() + 1.0) / 2.0
-    x = x.clamp(0, 1).permute(1, 2, 0).numpy()
-    Image.fromarray((x * 255).round().astype("uint8")).save(path)
+def extract_json(text: str) -> dict:
+    """Robust JSON extraction from LLM generation text."""
+    try:
+        return json.loads(text.strip())
+    except Exception:
+        pass
+    
+    # Try finding JSON wrapped in markdown code blocks
+    match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            pass
+            
+    # Try finding first balanced curly braces block
+    match_braces = re.search(r"(\{.*?\})", text, re.DOTALL)
+    if match_braces:
+        try:
+            return json.loads(match_braces.group(1))
+        except Exception:
+            pass
+            
+    return {}
 
 
-def _zero_condition(batch: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    return torch.zeros(batch, 3, TRAIN_IMAGE_H, TRAIN_IMAGE_W, device=device, dtype=dtype)
+class QwenMLLMPlanner:
+    """Fine-tuned Qwen2.5-VL Planner inference wrapper."""
 
-
-def _load_depth_png_as_rgb_pil(path: str) -> Image.Image:
-    with Image.open(path) as img:
-        return img.convert("L").convert("RGB") if img.mode == "L" else img.convert("RGB")
-
-
-def _pil_to_controlnet_tensor(pil: Image.Image, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    """Depth-style map: luminance → 3× channel, normalized to [-1, 1] at train resolution."""
-    gray = pil.convert("L").resize((TRAIN_IMAGE_W, TRAIN_IMAGE_H), Image.Resampling.BILINEAR)
-    t = TF.to_tensor(gray).to(device=device, dtype=torch.float32)
-    t = t.expand(3, -1, -1)
-    t = t * 2.0 - 1.0
-    return t.unsqueeze(0).to(dtype)
-
-
-@dataclass
-class GeneratorConfig:
-    output_dir: str = "./generated"
-    num_inference_steps: int = 30
-    guidance_scale: float = 5.0
-    seed: int = 0
-    negative_prompt: str = "blurry, distorted, noisy, broken geometry"
-    save_inputs: bool = False
-    max_steps: int = 64
-
-
-class CADAutoregressiveGenerator:
-    """Phase 4 loop: planner → ``CADSingleViewPipeline.generate`` until STOP or cap."""
-
-    def __init__(
-        self,
-        pipeline: CADSingleViewPipeline,
-        planner: Optional[MLLMPlanner] = None,
-        gen_cfg: Optional[GeneratorConfig] = None,
-    ) -> None:
-        self.pipeline = pipeline
-        self.planner = planner or MockMLLMPlanner()
-        self.cfg = gen_cfg or GeneratorConfig()
-        self._ifinal_tx = transforms.Compose([
-            transforms.Resize((IFINAL_H, IFINAL_W), antialias=True),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-        ])
-
-    @staticmethod
-    def _load_i_final(i_final: Union[str, Image.Image]) -> Image.Image:
-        if isinstance(i_final, str):
-            return Image.open(i_final).convert("RGB")
-        return i_final.convert("RGB") if i_final.mode != "RGB" else i_final
-
-    def run(
-        self,
-        i_final: Union[str, Image.Image],
-        depth_0_path: Optional[str] = None,
-        run_name: str = "run",
-    ) -> List[Image.Image]:
-        out_dir = os.path.join(self.cfg.output_dir, run_name)
-        os.makedirs(out_dir, exist_ok=True)
-
-        i_final_pil = self._load_i_final(i_final)
-        i_final_pil.save(os.path.join(out_dir, "i_final_input.png"))
-
-        device = self.pipeline.device
-        dtype = self.pipeline.weight_dtype
-        i_final_tensor = self._ifinal_tx(i_final_pil).unsqueeze(0).to(device, dtype=dtype)
-
-        if depth_0_path is not None and os.path.isfile(depth_0_path):
-            d0 = _load_depth_png_as_rgb_pil(depth_0_path)
-            state_pil = d0
-            cond = _pil_to_controlnet_tensor(d0, device=device, dtype=dtype)
-        else:
-            state_pil = Image.new("RGB", (TRAIN_IMAGE_W, TRAIN_IMAGE_H), color=(0, 0, 0))
-            cond = _zero_condition(1, device=device, dtype=dtype)
-
-        generator = torch.Generator(device=device).manual_seed(self.cfg.seed)
-        produced: List[Image.Image] = []
-
-        for k in range(self.cfg.max_steps):
-            prompt = self.planner.predict_next(i_final_pil, state_pil).strip()
-            with open(os.path.join(out_dir, "plan_stream.txt"), "a", encoding="utf-8") as fp:
-                fp.write(f"[{k}] {prompt}\n")
-
-            if not prompt or PLANNER_STOP_TOKEN in prompt:
-                break
-
-            if self.cfg.save_inputs:
-                _save_image_tensor(cond[0], os.path.join(out_dir, f"step_{k:03d}_controlnet_cond.png"))
-
-            output = self.pipeline.generate(
-                i_final=i_final_tensor,
-                condition_image=cond,
-                prompt=prompt,
-                negative_prompt=self.cfg.negative_prompt,
-                num_inference_steps=self.cfg.num_inference_steps,
-                guidance_scale=self.cfg.guidance_scale,
-                generator=generator,
+    def __init__(self, checkpoint_path: str, device: str = "cuda") -> None:
+        from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+        
+        self.device = torch.device(device)
+        self.processor = AutoProcessor.from_pretrained(checkpoint_path)
+        
+        torch_dtype = torch.bfloat16 if self.device.type == "cuda" else torch.float32
+        
+        # Load model, automatically handling LoRA adapters if present
+        if os.path.exists(os.path.join(checkpoint_path, "adapter_config.json")):
+            from peft import PeftModel
+            with open(os.path.join(checkpoint_path, "adapter_config.json"), "r") as f:
+                adapter_cfg = json.load(f)
+            base_model_id = adapter_cfg.get("base_model_name_or_path", "Qwen/Qwen2.5-VL-7B-Instruct")
+            logger.info(f"Loading base model {base_model_id}...")
+            base_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                base_model_id,
+                torch_dtype=torch_dtype,
+                device_map="auto" if self.device.type == "cuda" else None,
             )
-            g_k = output.images[0]
-            g_k.save(os.path.join(out_dir, f"step_{k:03d}_overlay.png"))
-            produced.append(g_k)
+            logger.info(f"Loading LoRA adapter from {checkpoint_path}...")
+            self.model = PeftModel.from_pretrained(base_model, checkpoint_path)
+        else:
+            logger.info(f"Loading full model from {checkpoint_path}...")
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                checkpoint_path,
+                torch_dtype=torch_dtype,
+                device_map="auto" if self.device.type == "cuda" else None,
+            )
+        
+        self.model.eval()
 
-            # // Phase 4 MVP: without CAD boolean + re-render, chain planner state on RGB overlay
-            # and approximate the next ControlNet map from its luminance.
-            state_pil = g_k
-            cond = _pil_to_controlnet_tensor(g_k, device=device, dtype=dtype)
+    def predict_next(self, i_final_path: str, prev_depth_path: str) -> str:
+        """Predict instruction JSON text for next modeling step."""
+        from qwen_vl_utils import process_vision_info
+        
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": i_final_path},
+                    {"type": "image", "image": prev_depth_path},
+                    {"type": "text", "text": FIXED_USER_PROMPT},
+                ]
+            }
+        ]
+        
+        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs if video_inputs else None,
+            padding=True,
+            return_tensors="pt",
+        ).to(self.device)
+        
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=512,
+                do_sample=False,
+            )
+            
+        generated_trimmed = [
+            out_ids[len(in_ids):]
+            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        
+        output_text = self.processor.batch_decode(
+            generated_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0]
+        
+        return output_text.strip()
 
-        return produced
 
-
-def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Phase 4 autoregressive CAD reverse loop (MVP).")
-    p.add_argument("--i-final", type=str, required=True, help="Path to final_snapshot.png")
-    p.add_argument(
-        "--depth-0",
-        type=str,
-        default=None,
-        help="Initial clean depth map (e.g. main_ref_depth.png). If omitted, zeros + black state.",
-    )
-    p.add_argument("--checkpoint", type=str, default=None, help="train_sd_painter.py output folder (trainables.pt).")
-    p.add_argument("--output-dir", type=str, default="./generated")
-    p.add_argument("--run-name", type=str, default="run")
-    p.add_argument("--num-inference-steps", type=int, default=30)
-    p.add_argument("--guidance-scale", type=float, default=5.0)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--max-steps", type=int, default=64)
-    p.add_argument("--save-inputs", action="store_true")
-    return p.parse_args()
+def run_sequence_simulation(
+    data_root: str,
+    part_id: str,
+    planner: QwenMLLMPlanner,
+    output_dir: str
+) -> None:
+    """Simulates the step-by-step CAD reverse modeling sequence using dataset ground-truth transitions."""
+    # Find part directory under data_root (could end with any suffix like _PPP, _NNN, etc.)
+    part_dir = None
+    for name in os.listdir(data_root):
+        if name.startswith(part_id + "_") and os.path.isdir(os.path.join(data_root, name)):
+            part_dir = os.path.join(data_root, name)
+            break
+            
+    if part_dir is None:
+        raise FileNotFoundError(f"Could not find part directory for '{part_id}' in '{data_root}'")
+        
+    final_snapshot_path = os.path.join(part_dir, "final_snapshot.png")
+    if not os.path.isfile(final_snapshot_path):
+        raise FileNotFoundError(f"Missing final_snapshot.png in {part_dir}")
+        
+    # Discover all step directories and sort them
+    step_prefix = "roll_back_index_"
+    step_indices = []
+    for entry in os.listdir(part_dir):
+        if entry.startswith(step_prefix) and os.path.isdir(os.path.join(part_dir, entry)):
+            idx = int(entry[len(step_prefix):])
+            step_indices.append(idx)
+    step_indices.sort()
+    
+    if not step_indices:
+        logger.warning(f"No step rollback directories found in {part_dir}")
+        return
+        
+    logger.info(f"Starting simulation for part {part_id} with steps: {step_indices}")
+    part_out_dir = os.path.join(output_dir, part_id)
+    os.makedirs(part_out_dir, exist_ok=True)
+    
+    predictions = []
+    
+    # Iterate through each modeling step transition
+    for step_idx in step_indices:
+        step_dir = os.path.join(part_dir, f"{step_prefix}{step_idx}")
+        prev_depth_path = os.path.join(step_dir, "prev_depth_map.png")
+        gt_instruction_path = os.path.join(step_dir, "instruction.json")
+        
+        if not os.path.isfile(prev_depth_path):
+            logger.warning(f"Missing prev_depth_map.png for step {step_idx}, skipping.")
+            continue
+            
+        logger.info(f"--- Simulating Step {step_idx} ---")
+        
+        # Predict instruction JSON text
+        raw_pred = planner.predict_next(final_snapshot_path, prev_depth_path)
+        pred_dict = extract_json(raw_pred)
+        
+        # Save prediction
+        out_pred_path = os.path.join(part_out_dir, f"step_{step_idx}_prediction.json")
+        with open(out_pred_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "raw_generation": raw_pred,
+                "parsed": pred_dict
+            }, f, indent=4)
+            
+        # Log comparison with ground-truth if available
+        gt_dict = {}
+        if os.path.isfile(gt_instruction_path):
+            with open(gt_instruction_path, "r", encoding="utf-8") as f:
+                gt_dict = json.load(f)
+                
+        logger.info(f"Predicted Operation: {pred_dict.get('operation_type')}")
+        logger.info(f"Ground-Truth Operation: {gt_dict.get('operation_type')}")
+        
+        predictions.append({
+            "step_index": step_idx,
+            "ground_truth": gt_dict,
+            "prediction": pred_dict
+        })
+        
+    logger.info(f"Simulation completed. Saved predictions under: {part_out_dir}")
 
 
 def main() -> None:
-    args = _parse_args()
+    logging.basicConfig(level=logging.INFO)
+    
+    p = argparse.ArgumentParser(description="Phase 2 Autoregressive Reverse Modeling Planner Simulation.")
+    p.add_argument("--checkpoint", type=str, required=True, help="Path to fine-tuned Qwen model folder.")
+    p.add_argument("--data-root", type=str, default=None, help="Root folder containing parts dataset.")
+    p.add_argument("--part-id", type=str, default=None, help="CAD part ID to run sequence simulation on.")
+    p.add_argument("--i-final", type=str, default=None, help="Single snapshot path for individual prompt run.")
+    p.add_argument("--depth-0", type=str, default=None, help="Single depth state path for individual prompt run.")
+    p.add_argument("--output-dir", type=str, default="./generated")
+    
+    args = p.parse_args()
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    infer_dtype = torch.float16 if device == "cuda" else torch.float32
-
-    pipeline = CADSingleViewPipeline(
-        model_cfg=ModelConfig(),
-        device=device,
-        weight_dtype=infer_dtype,
-    ).to_device(device)
-
-    if args.checkpoint is not None:
-        pipeline.load_trainables(args.checkpoint, strict=False)
-
-    gen = CADAutoregressiveGenerator(
-        pipeline=pipeline,
-        planner=MockMLLMPlanner(),
-        gen_cfg=GeneratorConfig(
-            output_dir=args.output_dir,
-            num_inference_steps=args.num_inference_steps,
-            guidance_scale=args.guidance_scale,
-            seed=args.seed,
-            save_inputs=args.save_inputs,
-            max_steps=args.max_steps,
-        ),
-    )
-    images = gen.run(i_final=args.i_final, depth_0_path=args.depth_0, run_name=args.run_name)
-    print(
-        f"Phase 4: {len(images)} overlays saved under "
-        f"{os.path.join(args.output_dir, args.run_name)}"
-    )
+    planner = QwenMLLMPlanner(args.checkpoint, device=device)
+    
+    # Mode 1: Sequence-level simulation on part dataset
+    if args.data_root is not None and args.part_id is not None:
+        run_sequence_simulation(
+            data_root=args.data_root,
+            part_id=args.part_id,
+            planner=planner,
+            output_dir=args.output_dir
+        )
+    # Mode 2: Single-step inference from individual snapshot and depth map
+    elif args.i-final is not None and args.depth-0 is not None:
+        logger.info("Running single-step planning prediction...")
+        raw_pred = planner.predict_next(args.i_final, args.depth_0)
+        parsed = extract_json(raw_pred)
+        print("\n--- Raw Prediction ---")
+        print(raw_pred)
+        print("\n--- Parsed JSON ---")
+        print(json.dumps(parsed, indent=4))
+    else:
+        logger.error(
+            "Invalid arguments. Either specify (--data-root AND --part-id) for sequence simulation "
+            "or (--i-final AND --depth-0) for single-step inference."
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
