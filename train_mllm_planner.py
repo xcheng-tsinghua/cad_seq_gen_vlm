@@ -23,7 +23,7 @@ import sys
 
 import config as _cfg  # noqa: F401  — HF cache env
 
-from qwen_planner_dataset import QwenPlannerSFTDataset
+from mllm_planner_dataset import MLLMPlannerSFTDataset
 
 
 def _parse_args() -> argparse.Namespace:
@@ -43,7 +43,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     args = _parse_args()
     try:
-        ds = QwenPlannerSFTDataset(
+        ds = MLLMPlannerSFTDataset(
             data_root=args.data_root,
             prev_state_mode=args.prev_state_mode,  # type: ignore[arg-type]
             part_ids_file=args.part_ids_file,

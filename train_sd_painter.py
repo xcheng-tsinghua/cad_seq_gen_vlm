@@ -9,7 +9,7 @@ of wrapping the full pipeline class.
 **Conditioning:** ``prev_depth_map`` (3-ch) + ``prompt.txt`` + ``final_snapshot`` (IP-Adapter).
 **Target:** ``overlayed_all.png`` for the current step.
 
-// Phase 1 labels prompts via ``auto_label.py``; Phase 3 planner SFT is ``train_qwen_planner.py``.
+// Phase 1 labels prompts via ``auto_label.py``; Phase 3 planner SFT is ``train_mllm_planner.py``.
 
 Usage::
 

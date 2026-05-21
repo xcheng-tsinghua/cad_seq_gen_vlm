@@ -50,7 +50,7 @@ class _PartRecord:
     sorted_indices: Tuple[int, ...]
 
 
-class QwenPlannerSFTDataset(Dataset):
+class MLLMPlannerSFTDataset(Dataset):
     """One row per transition: (I_final, prev_state) → caption for the next step."""
 
     def __init__(
@@ -72,7 +72,7 @@ class QwenPlannerSFTDataset(Dataset):
                 f"and non-empty {PROMPT_FILENAME} from Phase 1 (see prev_state_mode)."
             )
         logger.info(
-            "QwenPlannerSFTDataset: %d parts, %d transitions, mode=%s.",
+            "MLLMPlannerSFTDataset: %d parts, %d transitions, mode=%s.",
             len(self.parts),
             len(self.flat),
             prev_state_mode,
