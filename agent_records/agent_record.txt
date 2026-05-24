@@ -1173,3 +1173,919 @@ Please generate a single, self-contained `train.py` script that includes:
 
 Provide the complete python code cleanly without placeholders or omitting crucial processing blocks.
 
+
+
+
+
+----------------- Emu3.5
+Act as a world-class AI Engineer specializing in Advanced Multimodal Transformers, PyTorch, and PEFT.
+
+I want you to write a complete, production-ready, and end-to-end Python script (`train.py`) to fine-tune the "BAAI/Emu3.5" (34B) native Any-to-Any model on a single 80GB GPU (A100/H100) for a "Vision-Based CAD Modeling Step Reverse Generation System".
+
+### 1. Hardware & Performance Constraints (80GB VRAM Limit)
+- Model: "BAAI/Emu3.5" (34B)
+- Quantization: 4-bit QLoRA using `bitsandbytes` (`nf4` quantization, `torch.bfloat16` compute dtype) to prevent OOM.
+- Optimizations: Enable FlashAttention-2, Gradient Checkpointing, and use "paged_adamw_32bit" optimizer.
+- Memory Control: Force `per_device_train_batch_size=1` and `gradient_accumulation_steps=16` to achieve an effective batch size of 16 without exploding the activation memory.
+- Image Bounds: Resize all processed images to exactly 512x512 pixels before feeding them into the Emu3.5 Vision Tokenizer.
+
+### 2. Dataset Architecture & Custom Directory Parsing Logic
+The data directory is structured hierarchically. Your script must walk through the root directory, find all part folders, sort the rollback indices numerically, and parse them into samples. 
+
+Directory structure to parse:
+root
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png (The depth map (grayscale) of the existing model before the current modeling operation is executed)
+ │   │   ├─ current_depth_map.png (The depth map of the existing model after the current modeling operation is executed)
+ │   │   ├─ operation_param.json (The parameters of the current modeling step, including operation type modeling_type, depth, construct_type, etc.)
+ │   │   └─ overlayed_all.png  (Similar to the preview of modeling operation in CAD software)
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   │
+ │   ├─ ...
+ │   │
+ │   └─ final_snapshot.png
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., NNN)
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ...
+
+Inside the script, you MUST include and use this exact function to compute the Ground-Truth operation text label from `operation_param.json`:
+```python
+import json
+def get_exact_operation_type_from_param(param_json_path) -> str:
+    with open(param_json_path, 'r') as f:
+        param_dict = json.load(f)
+    type_str = param_dict['modeling_type']
+    if type_str == 'other':
+        return param_dict['raw_type']
+    if 'is_symmetric' in param_dict and param_dict['is_symmetric']:
+        type_str = 'symmetric_' + type_str
+    if 'construct_type' in param_dict:
+        if param_dict['construct_type'] in ('NEW', 'ADD'):
+            type_str = type_str + '_add'
+        else:
+            type_str = type_str + '_cut'
+    if 'draft_angle' in param_dict and param_dict['draft_angle'] is not None:
+        type_str = 'draft_' + type_str
+    return type_str
+
+### 3. Autoregressive Sample Construction &  Logic
+For each part folder, you must build TWO types of training samples to satisfy the Autoregressive Inference Loop requirement:
+
+Type A: Intermediate Modeling Steps
+
+Inputs:
+
+Image 1: final_snapshot.png
+
+Image 2: prev_depth_map.png (from current roll_back_index folder)
+
+System Prompt Text: Use the exact prompt specified below.
+
+Target Outputs:
+
+Target Text: The string returned by get_exact_operation_type_from_param(operation_param.json)
+
+Target Image: overlayed_all.png (from current roll_back_index folder)
+
+Type B: Final Termination Step (Auto-generated per Part Folder)
+For the highest roll_back_index folder within a part directory (the final modeling action before completion), create an additional training sample to teach the model when to stop:
+
+Inputs:
+
+Image 1: final_snapshot.png
+
+Image 2: current_depth_map.png (from the final roll_back_index folder, since the model has reached its final state)
+
+System Prompt Text: Use the exact prompt specified below.
+
+Target Outputs:
+
+Target Text: "<STOP>"
+
+Target Image: None (This sample outputs text ONLY, no output image token sequence should be computed or generated).
+
+### 4. Direct System Prompt to Embed in Inputs
+The fixed textual prompt that accompanies every training sample input is:
+"Based on the part final snapshot and the previous state depth map, infer the preview image of the current modeling step. The procedures for drawing preview image are as follows: Keeping the previous state depth map unchanged, apply a semi-transparent yellow mask on the reference plane used for sketching, and a semi-transparent Cyan mask on the Reference Geometry (e.g., revolve axis, sweep path). Then, draw a colored_incremental_wireframe to show the local entity created, modified, or removed in this step. Drawing Red Solid Line to show the Reference 2D Sketch used in the current operation. Drawing the Blue Solid Line to show The termination face contour of the local entity. Drawing the Green / Magenta Solid Line to show other shape counter of the local entity (Green: Edges of the newly added solid entity in this step. Magenta: Edges of the entity cut or removed in this step)"
+
+### 5. Multi-Image Interleaving with Emu3Processor
+Since this task takes two distinct input images (final_snapshot and prev_depth_map) and returns an interleaved text-image output (or text-only for ), you must carefully utilize Emu3Processor to encode the sequence.
+
+Construct the template payload such that Image 1 and Image 2 tokens are properly ordered within the user prompt context.
+
+Compute the causal cross-entropy loss over the entire Assistant Response segment (Target Text + Target Image Tokens). For the samples, handle the absence of target image tokens gracefully in the data collator without crashing.
+
+### 6. PEFT Configuration
+Set up LoraConfig with:
+
+r=32, lora_alpha=64, lora_dropout=0.05
+
+target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"] (target all linear layers to modify both spatial vision features and classification tokens).
+
+Please provide the complete, clean python scripts. Include the dataset parsing class, the custom data collator for multi-image processing, and the complete training initialization block. Avoid any placeholders or omitting sections.
+
+
+
+
+
+
+
+--------------------- gpt
+You are an expert machine learning engineer and full-stack research engineer. Please build a complete, runnable MVP codebase for fine-tuning and deploying Emu3.5 for a Vision-Based CAD Modeling Step Reverse Generation System.
+
+The goal is to fine-tune Emu3.5 as a multimodal autoregressive planner. Given the final rendered CAD part image and the previous modeling state depth map, the model should infer the current modeling operation type and generate a preview image of the current modeling step.
+
+I have an 80GB GPU available. Please design the codebase assuming single-GPU training is possible, but still support gradient accumulation, mixed precision, checkpointing, LoRA/QLoRA if supported, and resume-from-checkpoint.
+
+============================================================
+PROJECT NAME
+============================================================
+
+vision_cad_emu35
+
+============================================================
+HIGH-LEVEL SYSTEM GOAL
+============================================================
+
+Build a "Vision-Based CAD Modeling Step Reverse Generation System" MVP.
+
+The system uses Emu3.5 as the Planner. The Planner deduces the next CAD modeling operation from visual state information.
+
+The final intended autoregressive pipeline is:
+
+1. Input:
+   - final_snapshot.png: final CAD part rendering.
+   - depth_{k-1}: current CAD state depth map before step k.
+
+2. Planner:
+   - Emu3.5 predicts:
+     a. operation type text, for example:
+        extrude_add
+        extrude_cut
+        revolve_add
+        revolve_cut
+        sweep_add
+        sweep_cut
+        symmetric_extrude_add
+        draft_extrude_cut
+        <STOP>
+     b. overlayed_all_k.png: a preview image of the current modeling step.
+
+3. Executor:
+   - A downstream CAD parser reads overlayed_all_k and operation type.
+   - The executor performs the CAD modeling operation.
+   - It renders a clean new depth map depth_k.
+   - The executor is outside the scope of this project.
+
+4. Loop:
+   - Repeat until Emu3.5 outputs <STOP>, or the rendered depth map matches the final snapshot sufficiently.
+
+This codebase should implement:
+- Local Emu3.5 deployment interface.
+- Dataset preprocessing.
+- Fine-tuning pipeline.
+- Evaluation pipeline.
+- Inference API.
+- Web demo.
+- Autoregressive inference loop skeleton.
+- Clear documentation.
+
+============================================================
+PHASE 1: LOCAL DEPLOYMENT
+============================================================
+
+Implement local deployment of Emu3.5 for testing.
+
+Requirements:
+- Input:
+  - text prompt
+  - no more than 5 images
+  - each image should be resized/padded to 512x512
+- Output:
+  - text answer
+  - one generated image answer, 512x512
+- Interfaces:
+  - Python API
+  - FastAPI HTTP API
+  - simple webpage demo
+
+The deployment code should include:
+- model loading
+- processor/tokenizer loading
+- image preprocessing
+- generation config
+- error handling
+- GPU memory reporting
+- optional quantization if supported
+- support for local model path and Hugging Face model id
+
+Do not hard-code one fixed model path. Use a config file and command-line arguments.
+
+============================================================
+PHASE 2: FINE-TUNING
+============================================================
+
+Train Emu3.5 to act as an autoregressive planner.
+
+Each training sample contains:
+
+Inputs:
+1. final_snapshot.png, shape 512x512
+2. prev_depth_map.png, shape 512x512
+3. instruction text:
+
+"Based on the part final snapshot and the previous state depth map, infer the preview image of the current modeling step. The procedures for drawing preview image are as follows: Keeping the previous state depth map unchanged, apply a semi-transparent yellow mask on the reference plane used for sketching, and a semi-transparent Cyan mask on the Reference Geometry (e.g., revolve axis, sweep path). Then, draw a colored_incremental_wireframe to show the local entity created, modified, or removed in this step. Drawing Red Solid Line to show the Reference 2D Sketch used in the current operation. Drawing the Blue Solid Line to show The termination face contour of the local entity. Drawing the Green / Magenta Solid Line to show other shape counter of the local entity (Green: Edges of the newly added solid entity in this step. Magenta: Edges of the entity cut or removed in this step)"
+
+Outputs:
+1. Operation_Type.txt:
+   - the current modeling operation type, for example:
+     extrude_add
+     extrude_cut
+     revolve_add
+     revolve_cut
+     sweep_add
+     sweep_cut
+     loft_add
+     loft_cut
+     symmetric_extrude_add
+     draft_extrude_cut
+     other
+     <STOP>
+
+2. overlayed_all.png:
+   - the preview image of the current modeling operation.
+
+The model should be trained to generate both the operation type text and the output image.
+
+Please implement the training objective according to the actual Emu3.5 architecture and API. If Emu3.5 supports unified image-text token autoregression, implement the correct multimodal target construction. If the exact official API differs, isolate all model-specific logic in one adapter module so that it can be updated easily.
+
+Important:
+- Do not implement fake model logic.
+- Do not silently replace Emu3.5 with Stable Diffusion or another model.
+- If some Emu3.5-specific method is uncertain, create a clearly marked adapter function with TODO comments and robust interface boundaries.
+- The rest of the codebase should be complete and runnable once the adapter is filled according to the installed Emu3.5 package.
+
+============================================================
+PHASE 3: AUTOREGRESSIVE INFERENCE LOOP
+============================================================
+
+Implement a final pipeline skeleton:
+
+Inputs:
+- final_snapshot.png
+- initial_depth_map.png, called depth_0
+- max_steps
+- output directory
+
+Loop:
+1. Use Emu3.5 planner to predict:
+   - operation_type_k
+   - overlayed_all_k.png
+
+2. If operation_type_k == "<STOP>":
+   - stop.
+
+3. Save:
+   - step_k/operation_type.txt
+   - step_k/overlayed_all.png
+   - step_k/request.json
+   - step_k/response.json
+
+4. Call a placeholder executor interface:
+   - executor.run_step(
+       final_snapshot_path,
+       prev_depth_map_path,
+       overlayed_all_path,
+       operation_type,
+       output_depth_map_path
+     )
+
+5. The executor should be an abstract interface.
+   - Provide a dummy executor for MVP that either:
+     a. copies current_depth_map from ground-truth dataset if available, for teacher-forced evaluation, or
+     b. raises NotImplementedError for real novel-part inference.
+
+6. Continue with the new depth map.
+
+============================================================
+DATASET SPECIFICATION
+============================================================
+
+The dataset records every step of the CAD feature modeling process, from a blank slate to the final part.
+
+Current phase primarily validates single-view rendering and generation, but the file system should retain an extensible structure for multi-view data.
+
+Dataset root structure:
+
+root
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX]
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png
+ │   │   ├─ current_depth_map.png
+ │   │   ├─ operation_param.json
+ │   │   └─ overlayed_all.png
+ │   │
+ │   ├─ roll_back_index_3
+ │   │   └─ ...
+ │   │
+ │   ├─ ...
+ │   │
+ │   └─ final_snapshot.png
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX]
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ...
+
+Notes:
+- roll_back_index values may not be strictly continuous.
+- Each CAD_PART_ID_VIEW_SUFFIX directory represents one rendered view of one CAD part.
+- final_snapshot.png is shared across all rollback steps inside that directory.
+- Each rollback step represents one modeling operation.
+- prev_depth_map.png is the existing model depth map before the current operation.
+- current_depth_map.png is the depth map after the current operation.
+- overlayed_all.png is the target CAD-style preview image.
+- operation_param.json contains parameters for the current modeling step.
+
+Operation_Type.txt should be derived from operation_param.json using this exact logic:
+
+def get_exact_operation_type_from_param(param_json_path) -> str:
+    with open(param_json_path, 'r') as f:
+        param_dict = json.load(f)
+
+    type_str = param_dict['modeling_type']
+    if type_str == 'other':
+        return param_dict['raw_type']
+
+    if 'is_symmetric' in param_dict and param_dict['is_symmetric']:
+        type_str = 'symmetric_' + type_str
+
+    if 'construct_type' in param_dict:
+        if param_dict['construct_type'] in ('NEW', 'ADD'):
+            type_str = type_str + '_add'
+        else:
+            type_str = type_str + '_cut'
+
+    if 'draft_angle' in param_dict and param_dict['draft_angle'] is not None:
+        type_str = 'draft_' + type_str
+
+    return type_str
+
+Please implement this function exactly and write unit tests for it.
+
+============================================================
+DATASET PROCESSING REQUIREMENTS
+============================================================
+
+Implement dataset scanning and validation.
+
+The code should:
+1. Recursively scan dataset root.
+2. Find all part-view directories containing final_snapshot.png.
+3. Find all roll_back_index_* subdirectories.
+4. Sort rollback folders by their numeric index.
+5. For each rollback folder, check required files:
+   - prev_depth_map.png
+   - current_depth_map.png
+   - operation_param.json
+   - overlayed_all.png
+6. Derive operation_type from operation_param.json.
+7. Build training samples:
+   - final_snapshot path
+   - prev_depth_map path
+   - overlayed_all target path
+   - current_depth_map path
+   - operation_type
+   - cad_part_id
+   - view_suffix
+   - rollback_index
+8. Optionally add a <STOP> sample for each part-view sequence:
+   - input final_snapshot.png
+   - input last current_depth_map.png
+   - output text <STOP>
+   - output image can be either:
+     a. the last current_depth_map.png, or
+     b. a blank/no-op overlay image
+   Make this behavior configurable.
+
+Implement:
+- train/val/test split
+- deterministic split by CAD part id to avoid leakage between views/steps
+- manifest generation:
+  - manifest_all.jsonl
+  - train.jsonl
+  - val.jsonl
+  - test.jsonl
+- dataset statistics:
+  - number of parts
+  - number of views
+  - number of rollback steps
+  - operation type histogram
+  - missing/corrupted file report
+
+Image handling:
+- Load all images with PIL.
+- Convert to RGB unless a special mode is required by Emu3.5.
+- Resize or pad to 512x512.
+- For depth maps, preserve visual information.
+- Use configurable image size, default 512.
+- Save preprocessed cache optionally.
+
+============================================================
+TRAINING DESIGN
+============================================================
+
+Implement a robust training pipeline.
+
+Required features:
+- YAML config file.
+- CLI entrypoint.
+- single GPU training.
+- 80GB GPU default profile.
+- bf16 mixed precision if supported.
+- fp16 fallback.
+- gradient accumulation.
+- gradient checkpointing.
+- LoRA or QLoRA support if compatible with Emu3.5.
+- full fine-tuning option if memory allows.
+- checkpoint saving.
+- resume from checkpoint.
+- validation every N steps.
+- sample generation during validation.
+- TensorBoard logging.
+- Weights & Biases optional.
+- deterministic seed.
+- dataloader workers configurable.
+- image size configurable.
+- maximum text length configurable.
+- maximum generated image tokens configurable if applicable.
+- save best checkpoint according to validation loss.
+- save latest checkpoint.
+- save generated qualitative examples.
+
+Training sample prompt format should be explicit and stable.
+
+Use the following canonical conversation/input format unless Emu3.5 requires a different official chat template:
+
+System:
+"You are a CAD modeling planner. Given the final CAD part snapshot and the previous modeling state depth map, infer the current modeling operation type and generate the CAD-style preview image for this step."
+
+User:
+"Image 1 is the final CAD part snapshot. Image 2 is the previous state depth map. Based on these two images, predict the current modeling operation.
+
+Preview drawing rules:
+- Keep the previous state depth map unchanged as the background.
+- Apply a semi-transparent yellow mask on the sketch reference plane.
+- Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
+- Draw the colored incremental wireframe showing the local entity created, modified, or removed in this step.
+- Draw red solid lines for the reference 2D sketch used in the current operation.
+- Draw blue solid lines for the termination face contour of the local entity.
+- Draw green solid lines for edges of the newly added solid entity in this step.
+- Draw magenta solid lines for edges of the entity cut or removed in this step.
+Return the operation type first, then generate the preview image."
+
+Assistant target:
+"Operation_Type: {operation_type}"
+plus target image overlayed_all.png.
+
+If the Emu3.5 official format needs special image tokens, implement this in the model adapter, not scattered through the codebase.
+
+============================================================
+EVALUATION REQUIREMENTS
+============================================================
+
+Implement evaluation for both text and image outputs.
+
+Text metrics:
+- operation type accuracy
+- top-k accuracy if generation scores are available
+- confusion matrix
+- per-class precision/recall/F1
+- <STOP> precision/recall/F1
+
+Image metrics:
+- L1
+- L2/MSE
+- PSNR
+- SSIM
+- LPIPS if dependency is available
+- optional CLIP image similarity if dependency is available
+
+CAD-preview-specific image metrics:
+- Since overlayed_all.png uses strong colors, implement color mask extraction metrics:
+  - yellow mask IoU
+  - cyan mask IoU
+  - red line IoU/F1
+  - blue line IoU/F1
+  - green line IoU/F1
+  - magenta line IoU/F1
+
+Use HSV or RGB thresholding with configurable thresholds.
+
+Generate evaluation outputs:
+- metrics.json
+- operation_confusion_matrix.png
+- qualitative_grid.png
+- per_sample_results.jsonl
+- failed_cases directory
+
+============================================================
+INFERENCE REQUIREMENTS
+============================================================
+
+Implement:
+1. Single-step inference:
+   Input:
+   - final_snapshot.png
+   - prev_depth_map.png
+   - text instruction
+   Output:
+   - operation_type.txt
+   - overlayed_all.png
+   - response.json
+
+2. Batch inference:
+   Input:
+   - manifest jsonl
+   Output:
+   - one folder per sample
+
+3. Autoregressive inference:
+   Input:
+   - final_snapshot.png
+   - initial_depth_map.png
+   - max_steps
+   Output:
+   - step folders:
+     step_000
+     step_001
+     ...
+   Each folder contains:
+   - operation_type.txt
+   - overlayed_all.png
+   - prev_depth_map.png
+   - generated_depth_map.png if executor provides it
+   - response.json
+
+============================================================
+API REQUIREMENTS
+============================================================
+
+Implement FastAPI server with endpoints:
+
+GET /health
+- returns model status, GPU info, version info
+
+POST /generate
+- accepts multipart form:
+  - final_snapshot image
+  - prev_depth_map image
+  - prompt text optional
+- returns:
+  - operation_type
+  - generated image as base64 or URL
+  - metadata
+
+POST /generate_batch
+- accepts multiple pairs or a manifest
+- returns job result synchronously for MVP
+
+POST /autoregressive
+- accepts final_snapshot and initial_depth_map
+- returns generated step sequence
+
+The API should:
+- validate file types
+- handle errors cleanly
+- save request/response artifacts
+- support CORS for local web demo
+
+============================================================
+WEB DEMO REQUIREMENTS
+============================================================
+
+Implement a minimal webpage demo.
+
+The webpage should allow:
+- Upload final_snapshot.png.
+- Upload prev_depth_map.png.
+- Input optional prompt.
+- Click "Generate Step Preview".
+- Show:
+  - final snapshot
+  - previous depth map
+  - predicted operation type
+  - generated overlayed_all preview image
+- Show latency and GPU memory if available.
+
+Use a simple frontend. It can be:
+- plain HTML/JavaScript served by FastAPI, or
+- Gradio, if simpler.
+
+Prefer minimal dependencies.
+
+============================================================
+CODEBASE STRUCTURE
+============================================================
+
+Please create this structure:
+
+vision_cad_emu35/
+  README.md
+  pyproject.toml or requirements.txt
+  configs/
+    train_80gb.yaml
+    infer.yaml
+    api.yaml
+  scripts/
+    prepare_manifest.py
+    train.py
+    evaluate.py
+    infer_single.py
+    infer_batch.py
+    infer_autoregressive.py
+    launch_api.py
+    launch_web_demo.py
+  src/
+    vision_cad_emu35/
+      __init__.py
+      config.py
+      utils/
+        image_io.py
+        logging.py
+        gpu.py
+        seed.py
+        jsonl.py
+      data/
+        scan_dataset.py
+        operation_type.py
+        manifest.py
+        dataset.py
+        collate.py
+        transforms.py
+      models/
+        emu35_adapter.py
+        generation.py
+        checkpointing.py
+      train/
+        trainer.py
+        losses.py
+        validation.py
+      eval/
+        metrics_text.py
+        metrics_image.py
+        metrics_color_masks.py
+        report.py
+      inference/
+        single_step.py
+        autoregressive.py
+        executor.py
+      api/
+        server.py
+        schemas.py
+      web/
+        index.html
+  tests/
+    test_operation_type.py
+    test_dataset_scan.py
+    test_color_metrics.py
+
+============================================================
+CONFIG REQUIREMENTS
+============================================================
+
+Create configs/train_80gb.yaml with sensible defaults:
+
+model:
+  model_id_or_path: "path_or_hf_id_to_emu3_5"
+  trust_remote_code: true
+  image_size: 512
+  precision: "bf16"
+  use_lora: true
+  lora_rank: 64
+  lora_alpha: 128
+  lora_dropout: 0.05
+  gradient_checkpointing: true
+
+data:
+  dataset_root: "data/raw"
+  output_dir: "outputs/emu35_finetune"
+  manifest_dir: "data/manifests"
+  add_stop_samples: true
+  stop_image_policy: "copy_last_depth"
+  train_ratio: 0.9
+  val_ratio: 0.05
+  test_ratio: 0.05
+  split_by_part_id: true
+  image_size: 512
+  num_workers: 8
+
+training:
+  seed: 42
+  epochs: 10
+  batch_size_per_device: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  max_grad_norm: 1.0
+  logging_steps: 10
+  validation_steps: 500
+  save_steps: 500
+  save_total_limit: 5
+  resume_from_checkpoint: null
+  mixed_precision: "bf16"
+  compile_model: false
+
+generation:
+  max_new_tokens: 1024
+  temperature: 0.2
+  top_p: 0.9
+  do_sample: false
+
+logging:
+  tensorboard: true
+  wandb: false
+  project_name: "vision_cad_emu35"
+
+============================================================
+IMPLEMENTATION DETAILS
+============================================================
+
+1. Make the code robust and practical.
+2. Use pathlib everywhere.
+3. Use dataclasses or pydantic for configs.
+4. Use type hints.
+5. Avoid global mutable state.
+6. Write clear error messages.
+7. Add docstrings for key functions.
+8. Add logging.
+9. Make all scripts runnable from project root.
+10. Include installation instructions.
+11. Include example commands.
+
+============================================================
+IMPORTANT MODEL ADAPTER DESIGN
+============================================================
+
+The exact Emu3.5 API may vary. Therefore, implement src/vision_cad_emu35/models/emu35_adapter.py as the only place that directly interacts with Emu3.5.
+
+It should expose:
+
+class Emu35Adapter:
+    def __init__(self, config):
+        ...
+
+    def load_model(self):
+        ...
+
+    def preprocess_inputs(self, final_snapshot, prev_depth_map, prompt):
+        ...
+
+    def build_training_sample(self, sample):
+        ...
+
+    def forward_loss(self, batch):
+        ...
+
+    def generate(self, final_snapshot, prev_depth_map, prompt, generation_config):
+        """
+        Returns:
+            {
+                "operation_type": str,
+                "image": PIL.Image.Image,
+                "raw_text": str,
+                "metadata": dict
+            }
+        """
+        ...
+
+    def save_checkpoint(self, output_dir):
+        ...
+
+    def load_checkpoint(self, checkpoint_dir):
+        ...
+
+All Emu3.5-specific tokenization, image token handling, output image decoding, and chat template logic should be inside this adapter.
+
+If exact Emu3.5 image decoding is unavailable in the environment, raise a clear NotImplementedError with instructions about which method needs to be connected.
+
+Do not spread model-specific assumptions across dataset, trainer, API, or inference modules.
+
+============================================================
+COLOR MASK METRICS
+============================================================
+
+Implement color threshold utilities for target/predicted overlay images.
+
+Approximate colors:
+- yellow: sketch reference plane mask
+- cyan: reference geometry mask
+- red: 2D sketch line
+- blue: termination face contour
+- green: newly added solid entity edges
+- magenta: removed/cut entity edges
+
+Implement:
+- extract_color_mask(image, color_name, threshold_config)
+- binary_iou(pred_mask, gt_mask)
+- binary_precision_recall_f1(pred_mask, gt_mask)
+- compute_all_color_metrics(pred_image, gt_image)
+
+Use configurable thresholds because anti-aliasing and transparency may shift colors.
+
+============================================================
+TESTS
+============================================================
+
+Write tests for:
+1. get_exact_operation_type_from_param
+   - normal modeling type
+   - other/raw_type
+   - symmetric operation
+   - construct_type NEW/ADD -> _add
+   - construct_type REMOVE/CUT/SUBTRACT or anything else -> _cut
+   - draft_angle not None -> draft_ prefix
+
+2. dataset scanning
+   - non-continuous roll_back_index
+   - missing files are reported
+   - final_snapshot is correctly paired
+   - split by part id
+
+3. color metrics
+   - exact mask match gives IoU 1
+   - no overlap gives IoU 0
+   - partial overlap gives intermediate value
+
+============================================================
+README REQUIREMENTS
+============================================================
+
+README.md should include:
+
+- Project overview.
+- Environment setup.
+- Expected dataset layout.
+- How to prepare manifest.
+- How to train.
+- How to resume training.
+- How to evaluate.
+- How to run single-step inference.
+- How to run autoregressive inference.
+- How to launch API.
+- How to launch web demo.
+- Explanation of Emu35Adapter.
+- Explanation of where to modify code if the installed Emu3.5 API differs.
+- Known limitations.
+- MVP roadmap.
+
+Example commands:
+
+python scripts/prepare_manifest.py \
+  --dataset-root /path/to/dataset \
+  --manifest-dir data/manifests \
+  --add-stop-samples
+
+python scripts/train.py \
+  --config configs/train_80gb.yaml
+
+python scripts/evaluate.py \
+  --config configs/train_80gb.yaml \
+  --checkpoint outputs/emu35_finetune/best \
+  --split test
+
+python scripts/infer_single.py \
+  --config configs/infer.yaml \
+  --checkpoint outputs/emu35_finetune/best \
+  --final-snapshot examples/final_snapshot.png \
+  --prev-depth-map examples/prev_depth_map.png \
+  --output-dir outputs/infer_single
+
+python scripts/launch_api.py \
+  --config configs/api.yaml \
+  --checkpoint outputs/emu35_finetune/best
+
+============================================================
+CODING STYLE
+============================================================
+
+Please actually create the files and implement the code.
+
+Prioritize a clean, modular, maintainable MVP over excessive abstraction.
+
+Where Emu3.5 exact internals are unknown, implement a strong adapter boundary and mark only those exact methods as TODO/NotImplementedError. Everything else should be fully implemented.
+
+Avoid placeholders outside the Emu35Adapter and the CAD executor.
+
+The final result should be a project that I can inspect, modify, and run after installing the correct Emu3.5 dependencies.
+
+
+
