@@ -1,0 +1,25 @@
+model:
+  model_id_or_path: "path_or_hf_id_to_emu3_5"
+  trust_remote_code: true
+  image_size: 512
+  precision: "bf16"
+  use_lora: false
+  use_qlora: false
+  gradient_checkpointing: false
+  tokenizer_path: "path_or_hf_id_to_emu3_5"
+  vision_tokenizer_path: "path_or_hf_id_to_emu3_5_vision_tokenizer"
+  emu_repo_path: null
+  vq_type: "ibq"
+
+data:
+  output_dir: "outputs/inference"
+  manifest_dir: "data/manifests"
+  image_size: 512
+  num_workers: 0
+
+generation:
+  max_new_tokens: 1024
+  temperature: 0.2
+  top_p: 0.9
+  do_sample: false
+

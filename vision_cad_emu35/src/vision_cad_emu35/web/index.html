@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>vision_cad_emu35</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f4;
+      --ink: #171717;
+      --muted: #6b6b64;
+      --line: #d7d6cf;
+      --accent: #087f8c;
+      --panel: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    header {
+      padding: 20px 28px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+    h1 { font-size: 20px; margin: 0; letter-spacing: 0; }
+    main { padding: 24px 28px; max-width: 1280px; margin: 0 auto; }
+    .workspace {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    form {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+    label { display: grid; gap: 7px; font-size: 13px; color: var(--muted); }
+    input[type=file], textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 11px 12px;
+      background: var(--accent);
+      color: white;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: wait; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    figure {
+      margin: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 260px;
+    }
+    figcaption {
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+    }
+    img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      object-fit: contain;
+      background: #111;
+    }
+    .result {
+      margin-top: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .metric { min-width: 160px; }
+    .metric b { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+    .metric span { font-size: 18px; font-weight: 700; }
+    @media (max-width: 900px) {
+      .workspace { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>vision_cad_emu35</h1>
+    <span id="status">checking...</span>
+  </header>
+  <main>
+    <div class="workspace">
+      <form id="form">
+        <label>Final snapshot
+          <input id="final" name="final_snapshot" type="file" accept="image/*" required />
+        </label>
+        <label>Previous depth map
+          <input id="prev" name="prev_depth_map" type="file" accept="image/*" required />
+        </label>
+        <label>Optional prompt
+          <textarea id="prompt" name="prompt"></textarea>
+        </label>
+        <button id="submit" type="submit">Generate Step Preview</button>
+      </form>
+      <section>
+        <div class="grid">
+          <figure>
+            <figcaption>Final snapshot</figcaption>
+            <img id="finalPreview" alt="" />
+          </figure>
+          <figure>
+            <figcaption>Previous depth map</figcaption>
+            <img id="prevPreview" alt="" />
+          </figure>
+          <figure>
+            <figcaption>Generated overlay</figcaption>
+            <img id="outPreview" alt="" />
+          </figure>
+        </div>
+        <div class="result">
+          <div class="metric"><b>Operation type</b><span id="op">-</span></div>
+          <div class="metric"><b>Latency</b><span id="latency">-</span></div>
+          <div class="metric"><b>GPU memory</b><span id="gpu">-</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script>
+    const form = document.getElementById('form');
+    const finalInput = document.getElementById('final');
+    const prevInput = document.getElementById('prev');
+    const submit = document.getElementById('submit');
+    const setPreview = (input, image) => {
+      if (input.files && input.files[0]) image.src = URL.createObjectURL(input.files[0]);
+    };
+    finalInput.addEventListener('change', () => setPreview(finalInput, document.getElementById('finalPreview')));
+    prevInput.addEventListener('change', () => setPreview(prevInput, document.getElementById('prevPreview')));
+    fetch('/health').then(r => r.json()).then(j => {
+      document.getElementById('status').textContent = j.model_loaded ? 'model loaded' : 'model not loaded';
+    }).catch(() => { document.getElementById('status').textContent = 'server unavailable'; });
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      const data = new FormData(form);
+      try {
+        const response = await fetch('/generate', { method: 'POST', body: data });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.detail || 'request failed');
+        document.getElementById('op').textContent = json.operation_type;
+        document.getElementById('latency').textContent = `${json.latency_seconds.toFixed(2)} s`;
+        const gpu = json.metadata && json.metadata.gpu ? json.metadata.gpu : {};
+        document.getElementById('gpu').textContent = gpu.allocated_gb !== undefined ? `${gpu.allocated_gb} GB` : '-';
+        document.getElementById('outPreview').src = `data:image/png;base64,${json.image_base64}`;
+      } catch (err) {
+        document.getElementById('op').textContent = err.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+
