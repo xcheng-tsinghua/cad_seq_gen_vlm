@@ -1129,5 +1129,47 @@ colored_incremental_wireframe:
 我们该变了需求，sketch/other_counter/terminate_face_contour/sketch_plane_contour/reference_geom_contour的Ground Truth需要从The ground truth of instruction.json中转化而来，此外我们提供了全部的operation_type类别
 
 
+-----------------------------
+Act as an expert Senior ML Engineer proficient in PyTorch, Hugging Face Transformers, and PEFT.
 
+I want you to write a complete, production-ready, and end-to-end Python project to fine-tune the "BAAI/Emu3.5" (34B) native multimodal model on a single 80GB GPU (A100/H100).
+
+### Key Constraints & Requirements:
+1. Model Scale: BAAI/Emu3.5 (34B) requires strict memory management. You MUST use 4-bit QLoRA quantization (via bitsandbytes) to fit it into 80GB VRAM during training.
+2. Hardware: 1x 80GB GPU. Enable FlashAttention-2, gradient checkpointing, and use "paged_adamw_32bit" optimizer to absolutely prevent Out-Of-Memory (OOM) errors.
+3. Image Resolution: All input and output images will be resized to 512x512.
+4. Data Format: There are NO explicit thinking/thought tags. It is a direct "Interleaved Input -> Interleaved Output" mapping.
+
+### Local Dataset Structure:
+The dataset is a local JSON file formatted as a list of dicts:
+[
+  {
+    "instruction": "Convert this 2D sketch to 3D model status.",
+    "input_image_path": "/path/to/sketch_001.png",
+    "output_text": "Successfully generated the 3D block.",
+    "output_image_path": "/path/to/model_001.png"
+  }
+]
+
+### Expected Script Architecture:
+Please generate a single, self-contained `train.py` script that includes:
+
+1. Imports & Environment: Import torch, transformers (AutoModelForCausalLM, Emu3Processor, BitsAndBytesConfig), PEFT (LoraConfig, get_peft_model), PIL.Image, and Dataset/DataLoader.
+2. Quantization Config: Set up BitsAndBytesConfig with load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16, and bnb_4bit_quant_type="nf4".
+3. Model & Processor Loading: Load "BAAI/Emu3.5" with the quantization config, trust_remote_code=True, and attn_implementation="flash_attention_2". Load the corresponding Emu3Processor.
+4. Custom PyTorch Dataset:
+   - Implement a custom `MultimodalDataset` class that reads the JSON.
+   - For each sample, resize both images to 512x512.
+   - Construct the full sequence template using the processor:
+     [User Prompt/Instruction] + [Input Image Token Sequence] + [Assistant Output Text] + [Output Image Token Sequence] + EOS_token.
+   - Ensure the image tokens are correctly interleaved into the input_ids via the official `Emu3Processor`.
+5. PEFT LoRA Setup:
+   - Define a LoraConfig with r=32, lora_alpha=64, lora_dropout=0.05.
+   - Set target_modules to all linear layers (e.g., ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]) to ensure both text and vision token representations are updated.
+6. Training Loop / HuggingFace Trainer:
+   - Configure TrainingArguments: per_device_train_batch_size=1, gradient_accumulation_steps=16 (to achieve effective batch size of 16), bf16=True, learning_rate=2e-4, logging_steps=1, gradient_checkpointing=True.
+   - Ensure a proper data collator handles padding for interleaved input_ids and labels (masking out the input prompt parts in the labels is optional, but compute Causal LM loss on the entire assistant output sequence including output text and output image tokens).
+7. Weight Saving: Code to save only the trained LoRA adapters at the end of training.
+
+Provide the complete python code cleanly without placeholders or omitting crucial processing blocks.
 

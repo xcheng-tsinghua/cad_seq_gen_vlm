@@ -514,12 +514,90 @@ root
  ...
 
 
--------------------------------------------------------- 引线标注参考几何体
+-------------------------------------------------------- 引线标注草图基准面和参考几何体
 
 
 
 
+-------------------------------------------------------- Emu3.5
+# System Architecture & Workflow Handover: Vision-Based CAD Modeling Step Reverse Generation System MVP (Minimum Viable Product)
+
+## 1. Project Overview
+We are building a "Vision-Based CAD Modeling Step Reverse Generation System": Using a World Model (e.g., Emu3.5) acts as the **Planner**, deducing topological operations.
+
+---
+
+## 2. Experimental Workflow (The 4 Phases)
+
+### Phase 1: MLLM Fine-Tuning (Qwen2.5-VL LoRA/SFT)
+**Goal:** Train Qwen to act as the autoregressive planner during actual inference.
+- **Inputs:**
+    1. `final_snapshot.png` (Target goal).
+    2. `prev_depth_map.png` (representing the status before current operation. Can be depth_map, shaded snapshot, normal map, edge map, ...).
+    3. fixed text prompt:
+    "
+    NPC (normalized pixel coordinate): Divide the image into 1000 equal units on both sides, and represent the position of a point in the image with an integer pair (int_x, int_y) in the range [0, 100].
+    CCL-Shape (current modeling operation constructed local shape).
+    sketch/other_counter/terminate_face_contour/sketch_plane_contour/reference_geom_contour are all represented by three-dimensional arrays. The innermost array stores NPC, the middle array stores ordered points on a single stroke, and the outermost array stores multiple strokes.
+    Based on the part final image and the current part depth map, plan the next operation and output the following instruction in JSON format:
+    {
+        "operation_type": "type" (e.g., extrude_add, symmetric_extrude_cut, ...),
+        "sketch_contour (red)": [[[x1,y1], [x2,y2], ...]] (NPCs of the sketch referenced by current modeling operation),
+        "other_counter (green / magenta)": [[[x1,y1], [x2,y2], ...]] (NPCs of other shape counter. green: Edges of the newly added CCL-Shape. magenta: Edges of the cut or removed CCL-Shape),
+        "terminate_face_contour (blue)": [[[x1,y1], [x2,y2], ...]] (NPCs of the CCL-Shape termination face contour),
+        "sketch_plane_contour (yellow)": [[[x1,y1], [x2,y2], ...]], (NPCs of sketch_plane outer wire),
+        "reference_geom_contour (cyan)": [[[x1,y1], [x2,y2], ...]], (NPCs of other reference_geom outer wire),
+        "global_loc_bbox (red)": [ymin, xmin, ymax, xmax] (Draw a rectangle on final_snapshot to indicate the position of the entity built in the current step on the final model.)
+    }
+    "
+- **Outputs:** The predicted `instruction.json` for the NEXT immediate operation.
+- **Loss:** operation_type: nll_loss. sketch/other_counter/terminate_face_contour/sketch_plane_contour/reference_geom_contour: Individually converted The NPCs into pixel maps using a differentiable approach, their Ground Truths can be obtained by convert coordinates from the Ground Truth instruction.json to pixel maps.
+
+### Phase 2: Autoregressive Inference Loop (The Final Pipeline)
+**Goal:** End-to-End reverse engineering of a novel CAD part.
+- **Initialization:** Given final_snapshot and a base $depth_0$.
+- **Step 1 (Plan):** Qwen (from Phase 1) takes final_snapshot and $depth_{k-1}$, predicting $Instruction_k$.
+- **Step 2 (Execute):** A downstream CAD parser (outside the scope of these neural networks) reads $Instruction_k$, performs the modeling operation, and renders a new clean $depth_k$.
+- **Loop:** Repeat until Qwen outputs a `<STOP>` token or the depth matches the final snapshot.
 
 
+-------------------------- dataset
+Vision-Based CAD Modeling Step Reverse Generation System Dataset Specification
 
+1. Overview
+This dataset is designed to train the "Vision-Based CAD Modeling Step Reverse Generation System". The dataset records every step of the CAD feature modeling process, from a blank slate to the final part. The current phase primarily validates single-view rendering and generation, but the file system retains an extensible structure for multi-view data.
 
+2. Directory Structure
+root
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., PPP)
+ │   ├─ roll_back_index_1
+ │   │   ├─ prev_depth_map.png (The depth map (grayscale) of the existing model before the current modeling operation is executed)
+ │   │   ├─ current_depth_map.png (The depth map of the existing model after the current modeling operation is executed)
+ │   │   ├─ operation_param.json (The parameters of the current modeling step, including operation type modeling_type, depth, construct_type, etc.)
+ │   │   └─ overlayed_all.png  (Similar to the preview of modeling operation in CAD software)
+ │   │
+ │   ├─ roll_back_index_3  # Note: indices might not be strictly continuous (e.g., jumps from 1 to 3)
+ │   │   └─ ...
+ │   │
+ │   ├─ ...
+ │   │
+ │   └─ final_snapshot.png
+ │
+ ├─ [CAD_PART_ID]_[VIEW_SUFFIX] (e.g., NNN)
+ │   ├─ roll_back_index_1
+ │   │   └─ ...
+ │   └─ ...
+ ...
+
+- **Inputs:**
+ 1. final_snapshot.png (512 * 512)
+ 2. prev_depth_map.png (512 * 512)
+ 3. "Based on the part final snapshot and the previous state depth map, infer the preview image of the current modeling step. The rules for drawing preview images are as follows: Keeping the previous state depth map unchanged, apply a semi-transparent yellow mask to the reference plane used for sketching, and a semi-transparent Cyan mask to the Reference Geometry (e.g., Path/Axis of Revolution). Then, draw a colored_incremental_wireframe to show the local entity created, modified, or removed in this step. Drawing Red Solid Line to show the Reference 2D Sketch used in the current operation. Drawing the Blue Solid Line to show The termination face contour of the extrusion/sweep in this step (Termination Face). Drawing the Green / Magenta Solid Line to show other shape counter of the local modified shape by current modeling operation (Green: Edges of the newly added solid entity in this step. Magenta (Solid Line): Edges of the entity cut or removed in this step)"
+
+- **Outputs:**
+ 1. "Operation_Type: $type$" (the type could be: extrude_add, extrude_cut, ...)
+ 2. overlayed_all.png (the preview of current modeling operation)
+
+The Operation_Type could be obtained from operation_param.json by following Python Function:
+def parse_type_str(json_path):
+    ...
