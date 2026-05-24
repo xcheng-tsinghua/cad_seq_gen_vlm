@@ -38,7 +38,7 @@ def test_scan_non_continuous_indices_and_final_snapshot_pairing(tmp_path):
     result = scan_dataset(root, add_stop_samples=False)
 
     assert [sample["rollback_index"] for sample in result.samples] == [1, 3]
-    assert all(sample["final_snapshot_path"].endswith("partA_front/final_snapshot.png") for sample in result.samples)
+    assert all(Path(sample["final_snapshot_path"]).as_posix().endswith("partA_front/final_snapshot.png") for sample in result.samples)
     assert [sample["operation_type"] for sample in result.samples] == ["extrude_add", "revolve_add"]
 
 

@@ -7,15 +7,15 @@ from typing import Any
 
 @dataclass
 class ModelConfig:
-    model_id_or_path: str = "path_or_hf_id_to_emu3_5"
+    model_id_or_path: str = "BAAI/Emu3.5"
     trust_remote_code: bool = True
     image_size: int = 512
     precision: str = "bf16"
     quantization: str | None = None
     device_map: str | None = "auto"
-    tokenizer_path: str | None = None
+    tokenizer_path: str | None = "BAAI/Emu3.5"
     tokenizer_id_or_path: str | None = None
-    vision_tokenizer_path: str | None = None
+    vision_tokenizer_path: str | None = "BAAI/Emu3.5-VisionTokenizer"
     vq_path: str | None = None
     emu_repo_path: str | None = None
     vq_type: str = "ibq"
