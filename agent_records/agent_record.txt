@@ -2089,3 +2089,8 @@ The final result should be a project that I can inspect, modify, and run after i
 
 
 
+
+-----------------------------------
+我的这个项目是通过Emu3.5来实现图+文本生成图+文本的任务，需要大模型Emu3.5具备强推理能力，我的代码中有一些配置变量需要自己提供，例如model_id_or_path: "path_or_hf_id_to_emu3_5"，帮我遍历检查我的代码，并修复错误，并提供配置文件中除了数据集路径外其他参数的默认值
+
+My project uses Emu3.5 to achieve the task of image+text to image+text generation, requiring the large model Emu3.5 to have strong reasoning capabilities. There are some configuration variables in my code that need to be provided by myself, for example model_id_or_path: "path_or_hf_id_to_emu3_5". Help me traverse and check my code, fix errors, and provide default values for other parameters in the configuration file except for the dataset path.
