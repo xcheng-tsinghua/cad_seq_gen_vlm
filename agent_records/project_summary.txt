@@ -600,4 +600,6 @@ root
 
 The Operation_Type could be obtained from operation_param.json by following Python Function:
 def parse_type_str(json_path):
-    ...
+    with open(json_path, 'r') as f:
+        param_dict = json.load(f)
+
