@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from vision_cad_emu35.rag.retriever import RagRetriever
+from vision_cad_emu35.utils.jsonl import read_jsonl
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Inspect a RAG knowledge base.")
+    parser.add_argument("--kb-dir", default="outputs/rag_kb")
+    args = parser.parse_args()
+
+    kb_dir = Path(args.kb_dir)
+    items_path = kb_dir / "kb_items.jsonl"
+    items = list(read_jsonl(items_path)) if items_path.exists() else []
+    retriever = RagRetriever(kb_dir)
+    hist = Counter(item.get("operation_type", "unknown") for item in items)
+    summary = {
+        "kb_dir": str(kb_dir),
+        "num_items": len(items),
+        "operation_type_histogram": dict(sorted(hist.items())),
+        "embedding_shape": list(retriever.store.shape),
+        "vector_index_exists": (kb_dir / "faiss.index").exists() or (kb_dir / "embeddings.npy").exists(),
+        "is_empty": retriever.is_empty(),
+        "example_items": items[:3],
+    }
+    print(json.dumps(summary, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    main()
+

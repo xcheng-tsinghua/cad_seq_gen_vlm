@@ -1,49 +1,13 @@
 # vision_cad_emu35
 
-MVP codebase for fine-tuning and deploying Emu3.5 as a multimodal autoregressive planner for vision-based CAD modeling step reverse generation.
+Frozen Emu3.5 RAG system for vision-based CAD modeling step reverse generation.
 
-The planner takes:
+This project no longer fine-tunes Emu3.5. It keeps Emu3.5 frozen, builds a retrieval knowledge base from historical CAD modeling steps, retrieves similar examples for a query, and asks Emu3.5 to generate:
 
-- `final_snapshot.png`: final rendered CAD part.
-- `prev_depth_map.png`: the previous modeling state depth map.
+- `Operation_Type: <operation_type>`
+- one CAD-style preview image, `overlayed_all.png`
 
-It predicts:
-
-- `Operation_Type: ...`
-- `overlayed_all.png`: a CAD-style preview image for the current modeling step.
-
-The downstream CAD executor/parser is intentionally outside this project. A small executor interface is included so the autoregressive loop can be connected to a real CAD backend later.
-
-## Emu3.5 Adapter Boundary
-
-All direct Emu3.5 calls live in:
-
-```text
-src/vision_cad_emu35/models/emu35_adapter.py
-```
-
-The adapter is designed around the public Emu3.5 repo utilities:
-
-- `build_emu3p5`
-- `build_image`
-- `generate`
-- `multimodal_decode`
-
-If your installed Emu3.5 package exposes different names or output structures, update only this file. The data pipeline, trainer, evaluator, API, and web demo call the stable adapter methods:
-
-```python
-load_model()
-build_training_sample(sample)
-forward_loss(batch)
-generate(final_snapshot, prev_depth_map, prompt, generation_config)
-save_checkpoint(output_dir)
-load_checkpoint(checkpoint_dir)
-```
-
-Official references:
-
-- [BAAI Emu3.5 GitHub](https://github.com/baaivision/Emu3.5)
-- [BAAI Emu3.5 on Hugging Face](https://huggingface.co/BAAI/Emu3.5)
+The system supports an empty knowledge base. If no KB exists, the API and web demo still launch and run zero-shot using only the query images and drawing rules.
 
 ## Setup
 
@@ -52,40 +16,27 @@ cd vision_cad_emu35
 python -m venv .venv
 . .venv/bin/activate
 pip install -U modelscope
-pip install -e ".[dev,eval]"
+pip install -e ".[dev]"
 ```
 
-Install the official Emu3.5 runtime dependencies after the weights are local. The runtime configs default to local paths under `/root/autodl-tmp/data` and `local_files_only: true`, so training and inference will not silently download from online repos.
+Install the official Emu3.5 runtime code separately. If its utilities are not importable, set `model.emu_repo_path` in `configs/rag.yaml` to a local checkout of the official Emu3.5 repo.
 
 ## Download Models from ModelScope Without GPU
 
-This is the recommended method for mainland China. The downloader only downloads files: it does not import `torch`, does not touch CUDA, does not load the model, and does not require a GPU.
+Recommended for mainland China:
 
 ```bash
-pip install -U modelscope
 python scripts/download_models.py
 ```
 
-This downloads:
+The downloader does not import `torch`, does not load the model, and does not require a GPU. It writes:
 
 ```text
 /root/autodl-tmp/data/BAAI/Emu3.5
 /root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer
 ```
 
-The default command is equivalent to:
-
-```bash
-python scripts/download_models.py \
-  --backend modelscope \
-  --output-dir /root/autodl-tmp/data/ \
-  --main-modelscope-id BAAI/Emu3.5 \
-  --vision-tokenizer-modelscope-id BAAI/Emu3.5-VisionTokenizer \
-  --revision main \
-  --resume
-```
-
-ModelScope with custom ids:
+ModelScope custom ids:
 
 ```bash
 python scripts/download_models.py \
@@ -94,61 +45,15 @@ python scripts/download_models.py \
   --vision-tokenizer-modelscope-id BAAI/Emu3.5-VisionTokenizer
 ```
 
-If those ModelScope ids are not available in your environment, override them with the actual ModelScope model ids:
+Hugging Face fallback:
 
 ```bash
-python scripts/download_models.py \
-  --backend modelscope \
-  --main-modelscope-id <actual_modelscope_model_id> \
-  --vision-tokenizer-modelscope-id <actual_modelscope_model_id>
-```
-
-Hugging Face is kept as an optional fallback only:
-
-```bash
-pip install -U huggingface_hub
-huggingface-cli login
 python scripts/download_models.py \
   --backend huggingface \
   --hf-token $HF_TOKEN
 ```
 
-If you use a Hugging Face mirror, set `HF_ENDPOINT` before running with `--backend huggingface`. The script writes `download_record.json` in each local repo directory and prints this snippet when done:
-
-```yaml
-model:
-  model_root: "/root/autodl-tmp/data"
-  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
-  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
-  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
-  emu_repo_path: null
-  local_files_only: true
-```
-
-After download, training, inference, API, and the web demo load from these local paths automatically.
-
-The official Emu3.5 Python utilities still need to be installed or importable. If they are not in the Python environment, set `model.emu_repo_path` to a local checkout of the official repo.
-
-## Normal Workflow
-
-1. Download models:
-
-```bash
-python scripts/download_models.py
-```
-
-2. Edit only the dataset path in `configs/train_80gb.yaml`:
-
-```yaml
-data:
-  dataset_root: "/my/dataset/path"
-```
-
-3. Prepare the manifest.
-
-4. Train.
-
-Inference, API, and web demo configs already use the same local model paths.
+Runtime loading always uses local paths by default. The adapter does not download anything.
 
 ## Dataset Layout
 
@@ -165,198 +70,116 @@ root/
       ...
 ```
 
-Rollback indices do not need to be continuous. Splits are deterministic by `cad_part_id` by default to avoid leakage across views and steps.
+Rollback indices may be non-continuous. Operation types are derived exactly from `operation_param.json` by `get_exact_operation_type_from_param`.
 
-## Prepare Manifests
+## Normal RAG Workflow
 
-Edit only the training dataset path in `configs/train_80gb.yaml`:
+1. Edit dataset path in `configs/rag.yaml`:
 
 ```yaml
 data:
   dataset_root: "/path/to/your/dataset"
 ```
 
+2. Prepare manifest:
+
 ```bash
 python scripts/prepare_manifest.py \
-  --dataset-root /path/to/dataset \
+  --dataset-root /path/to/your/dataset \
   --manifest-dir data/manifests \
   --add-stop-samples
 ```
 
-Outputs:
-
-- `manifest_all.jsonl`
-- `train.jsonl`
-- `val.jsonl`
-- `test.jsonl`
-- `stats.json`
-- `issues.jsonl`
-
-## Train
+3. Build RAG knowledge base:
 
 ```bash
-python scripts/train.py \
-  --config configs/train_80gb.yaml
+python scripts/build_kb.py \
+  --config configs/rag.yaml \
+  --dataset-root /path/to/your/dataset \
+  --kb-dir outputs/rag_kb
 ```
 
-The default profile assumes a single 80GB GPU and uses:
-
-- bf16 mixed precision
-- batch size 1
-- gradient accumulation 8
-- gradient checkpointing
-- LoRA rank 64
-- checkpoint save/resume
-- TensorBoard logging
-
-Resume:
+4. Inspect KB:
 
 ```bash
-python scripts/train.py \
-  --config configs/train_80gb.yaml
+python scripts/inspect_kb.py \
+  --kb-dir outputs/rag_kb
 ```
 
-Set `training.resume_from_checkpoint` in the YAML, or edit the file before launch.
-
-## Evaluate
+5. Run single inference:
 
 ```bash
-python scripts/evaluate.py \
-  --config configs/train_80gb.yaml \
-  --checkpoint outputs/emu35_finetune/best \
-  --split test
-```
-
-Outputs include:
-
-- `metrics.json`
-- `operation_confusion_matrix.png`
-- `qualitative_grid.png`
-- `per_sample_results.jsonl`
-- `failed_cases/`
-
-Metrics include operation accuracy, confusion matrix, per-class precision/recall/F1, L1, MSE, PSNR, SSIM, optional LPIPS, and CAD color-mask IoU/F1 for yellow, cyan, red, blue, green, and magenta.
-
-## Single-Step Inference
-
-```bash
-python scripts/infer_single.py \
-  --config configs/infer.yaml \
-  --checkpoint outputs/emu35_finetune/best \
+python scripts/infer_rag_single.py \
+  --config configs/rag.yaml \
   --final-snapshot examples/final_snapshot.png \
   --prev-depth-map examples/prev_depth_map.png \
-  --output-dir outputs/infer_single
+  --output-dir outputs/rag_single
 ```
 
-Inference uses the local model paths in `configs/infer.yaml` automatically.
-
-## Batch Inference
+6. Launch web demo:
 
 ```bash
-python scripts/infer_batch.py \
-  --config configs/infer.yaml \
-  --checkpoint outputs/emu35_finetune/best \
-  --manifest data/manifests/test.jsonl \
-  --output-dir outputs/infer_batch
+python scripts/launch_web_demo.py \
+  --config configs/rag.yaml
 ```
 
-## Autoregressive Inference
+Open:
 
-```bash
-python scripts/infer_autoregressive.py \
-  --config configs/infer.yaml \
-  --checkpoint outputs/emu35_finetune/best \
-  --final-snapshot examples/final_snapshot.png \
-  --initial-depth-map examples/depth_0.png \
-  --max-steps 20 \
-  --output-dir outputs/autoregressive
+```text
+http://SERVER_IP:8000
 ```
 
-For teacher-forced evaluation, provide known depth maps:
+The server binds to `0.0.0.0` by default so other computers on the network can access it.
 
-```bash
-python scripts/infer_autoregressive.py \
-  --config configs/infer.yaml \
-  --checkpoint outputs/emu35_finetune/best \
-  --final-snapshot examples/final_snapshot.png \
-  --initial-depth-map examples/depth_0.png \
-  --teacher-depth-sequence examples/depth_1.png examples/depth_2.png \
-  --output-dir outputs/autoregressive_teacher
+## Empty KB Mode
+
+These cases are supported:
+
+- `outputs/rag_kb` does not exist.
+- `kb_items.jsonl` is empty.
+- `embeddings.npy` is missing.
+- `embeddings.npy` has shape `(0, dim)`.
+
+In all cases retrieval returns `[]`, the prompt builder creates a zero-shot prompt, and the web UI shows:
+
+```text
+Knowledge base is empty. The system is running in zero-shot mode.
 ```
 
-Without a teacher-forced sequence or real CAD executor, the loop raises `NotImplementedError` after a non-`<STOP>` operation, by design.
+Generation still requires a locally installed/loadable Emu3.5 model.
 
 ## API
 
 ```bash
 python scripts/launch_api.py \
-  --config configs/api.yaml \
-  --checkpoint outputs/emu35_finetune/best
+  --config configs/rag.yaml
 ```
-
-The API and web demo use the local model paths in `configs/api.yaml` automatically.
 
 Endpoints:
 
 - `GET /health`
+- `POST /retrieve`
 - `POST /generate`
-- `POST /generate_batch`
-- `POST /autoregressive`
+- `POST /reload_kb`
 
-## Web Demo
+`POST /generate` accepts multipart fields:
 
-```bash
-python scripts/launch_web_demo.py \
-  --config configs/api.yaml \
-  --checkpoint outputs/emu35_finetune/best
-```
+- `final_snapshot`
+- `prev_depth_map`
+- `top_k`
+- `prompt_extra`
 
-Open the URL printed by the script. The demo lets you upload the final snapshot and previous depth map, then displays the predicted operation and generated overlay.
+## RAG Components
 
-## Changing the Local Model Root
+- `rag/image_embedding.py`: CLIP if available, simple CPU embedding by default.
+- `rag/vector_store.py`: pure NumPy cosine-similarity vector store.
+- `rag/retriever.py`: empty-KB-safe retrieval with optional operation type filtering.
+- `rag/prompt_builder.py`: multimodal prompt packing with configurable retrieved example images.
+- `models/emu35_adapter.py`: frozen Emu3.5 inference-only adapter.
 
-The default local model root is:
+## Not a Fine-Tuning Project
 
-```text
-/root/autodl-tmp/data/
-```
-
-To change it without editing YAML:
-
-```bash
-python scripts/download_models.py --output-dir /new/model/root
-
-python scripts/train.py \
-  --config configs/train_80gb.yaml \
-  --model-root /new/model/root
-```
-
-The same `--model-root` override is supported by:
-
-- `scripts/train.py`
-- `scripts/evaluate.py`
-- `scripts/infer_single.py`
-- `scripts/infer_batch.py`
-- `scripts/infer_autoregressive.py`
-- `scripts/launch_api.py`
-- `scripts/launch_web_demo.py`
-
-Or edit YAML directly:
-
-```yaml
-model:
-  model_root: "/new/model/root"
-  model_id_or_path: "/new/model/root/BAAI/Emu3.5"
-  tokenizer_path: "/new/model/root/BAAI/Emu3.5"
-  vision_tokenizer_path: "/new/model/root/BAAI/Emu3.5-VisionTokenizer"
-  local_files_only: true
-```
-
-If `local_files_only: true` and any required local directory is missing, runtime scripts fail early with:
-
-```text
-Local Emu3.5 weights not found. Please run: python scripts/download_models.py
-```
+Fine-tuning scripts, LoRA/QLoRA training, optimizer loops, validation loss, and checkpoint training workflows have been removed. The current project is RAG-first and uses frozen Emu3.5 for inference only.
 
 ## Tests
 
@@ -364,18 +187,4 @@ Local Emu3.5 weights not found. Please run: python scripts/download_models.py
 pytest
 ```
 
-The tests do not require Emu3.5. They cover operation type derivation, dataset scanning/splitting, and color-mask metrics.
-
-## Known Limitations
-
-- Exact Emu3.5 image-text training delimiters may vary by release. The current implementation uses native autoregressive target construction with official image tokenization and marks the delimiter check inside `Emu35Adapter.build_training_sample`.
-- Real CAD execution is not included. Connect your CAD parser/rendering backend by implementing `Executor.run_step`.
-- QLoRA depends on the official loader supporting quantized model loading. The adapter prepares k-bit training when PEFT is available, but you may need to extend `load_model` for your local Emu3.5 loader.
-
-## MVP Roadmap
-
-- Validate adapter delimiters against the installed Emu3.5 release.
-- Add a real CAD executor integration.
-- Add multi-view sample packing.
-- Add distributed training profiles.
-- Add richer operation-type constrained decoding.
+Tests cover operation type extraction, dataset scanning, empty-KB behavior, prompt building, and vector retrieval.

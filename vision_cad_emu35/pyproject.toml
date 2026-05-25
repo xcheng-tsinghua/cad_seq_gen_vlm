@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vision-cad-emu35"
 version = "0.1.0"
-description = "MVP for fine-tuning and deploying Emu3.5 for vision-based CAD modeling step reverse generation."
+description = "RAG-based frozen Emu3.5 system for vision-based CAD modeling step reverse generation."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -20,14 +20,10 @@ dependencies = [
   "pydantic>=2.0",
   "torch>=2.1",
   "transformers>=4.40",
-  "accelerate>=0.28",
-  "peft>=0.10",
-  "tensorboard>=2.14",
-  "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
-eval = ["scikit-image>=0.22", "lpips>=0.1.4", "open-clip-torch>=2.24"]
+clip = ["open-clip-torch>=2.24"]
 dev = ["pytest>=8.0", "ruff>=0.5"]
 
 [tool.setuptools.packages.find]

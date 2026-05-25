@@ -14,17 +14,16 @@ _DEFAULT_MODEL_PATHS = default_local_model_paths(DEFAULT_MODEL_ROOT)
 class ModelConfig:
     model_root: str = DEFAULT_MODEL_ROOT
     model_id_or_path: str = _DEFAULT_MODEL_PATHS["model_id_or_path"]
+    tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["tokenizer_path"]
+    vision_tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["vision_tokenizer_path"]
+    emu_repo_path: str | None = None
+    local_files_only: bool = True
     trust_remote_code: bool = True
     image_size: int = 512
     precision: str = "bf16"
-    quantization: str | None = None
     device_map: str | None = "auto"
-    tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["tokenizer_path"]
     tokenizer_id_or_path: str | None = None
-    vision_tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["vision_tokenizer_path"]
     vq_path: str | None = None
-    emu_repo_path: str | None = None
-    local_files_only: bool = True
     vq_type: str = "ibq"
     device: str | None = None
     vq_device: str | None = None
@@ -38,49 +37,32 @@ class ModelConfig:
     image_temperature: float = 1.0
     top_k: int = 131072
     use_differential_sampling: bool = True
-    use_lora: bool = True
-    use_qlora: bool = False
-    lora_rank: int = 64
-    lora_alpha: int = 128
-    lora_dropout: float = 0.05
-    lora_target_modules: list[str] | None = None
-    gradient_checkpointing: bool = True
+    optional_adapter_path: str | None = None
 
 
 @dataclass
 class DataConfig:
-    dataset_root: str = "data/raw"
-    output_dir: str = "outputs/emu35_finetune"
+    dataset_root: str = "/path/to/your/dataset"
     manifest_dir: str = "data/manifests"
+    output_dir: str = "outputs"
     add_stop_samples: bool = True
     stop_image_policy: str = "copy_last_depth"
-    train_ratio: float = 0.9
-    val_ratio: float = 0.05
-    test_ratio: float = 0.05
-    split_by_part_id: bool = True
     image_size: int = 512
-    num_workers: int = 8
-    preprocessed_cache_dir: str | None = None
 
 
 @dataclass
-class TrainingConfig:
-    seed: int = 42
-    epochs: int = 10
-    batch_size_per_device: int = 1
-    gradient_accumulation_steps: int = 8
-    learning_rate: float = 1.0e-5
-    weight_decay: float = 0.01
-    warmup_ratio: float = 0.03
-    max_grad_norm: float = 1.0
-    logging_steps: int = 10
-    validation_steps: int = 500
-    save_steps: int = 500
-    save_total_limit: int = 5
-    resume_from_checkpoint: str | None = None
-    mixed_precision: str = "bf16"
-    compile_model: bool = False
-    max_text_length: int = 2048
+class RagConfig:
+    kb_dir: str = "outputs/rag_kb"
+    embedding_backend: str = "simple"
+    vector_backend: str = "numpy"
+    top_k: int = 3
+    max_reference_images: int = 6
+    include_example_outputs: bool = True
+    include_example_final_snapshot: bool = False
+    include_example_prev_depth_map: bool = True
+    include_example_overlayed_all: bool = True
+    allow_empty_kb: bool = True
+    operation_type_hint: str | None = None
 
 
 @dataclass
@@ -93,38 +75,46 @@ class GenerationConfig:
 
 
 @dataclass
-class LoggingConfig:
-    tensorboard: bool = True
-    wandb: bool = False
-    project_name: str = "vision_cad_emu35"
+class ApiConfig:
+    host: str = "0.0.0.0"
+    port: int = 8000
+    artifacts_dir: str = "outputs/api_artifacts"
+    cors_origins: list[str] = field(default_factory=lambda: ["*"])
+
+    @property
+    def artifact_dir(self) -> str:
+        return self.artifacts_dir
+
+    @property
+    def allow_origins(self) -> list[str]:
+        return self.cors_origins
 
 
 @dataclass
-class ApiConfig:
-    host: str = "127.0.0.1"
-    port: int = 8000
-    artifact_dir: str = "outputs/api"
-    allow_origins: list[str] = field(default_factory=lambda: ["*"])
+class WebConfig:
+    title: str = "Vision CAD Emu3.5 RAG Demo"
+    allow_upload_kb: bool = False
+    show_retrieved_examples: bool = True
 
 
 @dataclass
 class AppConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
-    training: TrainingConfig = field(default_factory=TrainingConfig)
+    rag: RagConfig = field(default_factory=RagConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "AppConfig":
         return cls(
             model=_dataclass_from_dict(ModelConfig, raw.get("model", {})),
             data=_dataclass_from_dict(DataConfig, raw.get("data", {})),
-            training=_dataclass_from_dict(TrainingConfig, raw.get("training", {})),
+            rag=_dataclass_from_dict(RagConfig, raw.get("rag", {})),
             generation=_dataclass_from_dict(GenerationConfig, raw.get("generation", {})),
-            logging=_dataclass_from_dict(LoggingConfig, raw.get("logging", {})),
             api=_dataclass_from_dict(ApiConfig, raw.get("api", {})),
+            web=_dataclass_from_dict(WebConfig, raw.get("web", {})),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,11 +123,16 @@ class AppConfig:
 
 def _dataclass_from_dict(cls: type[Any], raw: dict[str, Any]) -> Any:
     names = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in raw.items() if k in names})
+    normalized = dict(raw or {})
+    if cls is ApiConfig:
+        if "artifact_dir" in normalized and "artifacts_dir" not in normalized:
+            normalized["artifacts_dir"] = normalized.pop("artifact_dir")
+        if "allow_origins" in normalized and "cors_origins" not in normalized:
+            normalized["cors_origins"] = normalized.pop("allow_origins")
+    return cls(**{k: v for k, v in normalized.items() if k in names})
 
 
 def load_config(path: str | Path | None) -> AppConfig:
-    """Load YAML or JSON config into strongly typed dataclasses."""
     if path is None:
         return AppConfig()
     config_path = Path(path)
@@ -161,7 +156,6 @@ def load_config(path: str | Path | None) -> AppConfig:
 
 
 def save_config(config: AppConfig, path: str | Path) -> None:
-    """Write config as YAML when PyYAML is available, otherwise JSON."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     raw = config.to_dict() if is_dataclass(config) else config

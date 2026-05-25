@@ -2097,7 +2097,840 @@ My project uses Emu3.5 to achieve the task of image+text to image+text generatio
 
 
 
+Please refactor the current project from an Emu3.5 fine-tuning pipeline into a no-fine-tuning RAG-based Emu3.5 CAD modeling step generation system.
 
+I have already backed up the original fine-tuning code, so you may freely modify, delete, or replace files as needed.
+
+============================================================
+GOAL
+============================================================
+
+The original project was designed to fine-tune Emu3.5 for CAD modeling step reverse generation.
+
+Now I do NOT want to fine-tune Emu3.5.
+
+Instead, I want to keep Emu3.5 frozen and use a Retrieval-Augmented Generation approach to adapt it to my task.
+
+The system should:
+
+1. Build a knowledge base from my existing CAD modeling sequence dataset.
+2. For each query, retrieve similar historical modeling-step examples.
+3. Construct a rich multimodal prompt containing:
+   - task instruction
+   - final_snapshot.png
+   - prev_depth_map.png
+   - retrieved similar examples
+   - operation type hints
+   - preview drawing rules
+4. Ask frozen Emu3.5 to output:
+   - operation type text
+   - one generated preview image overlayed_all.png
+5. Provide:
+   - CLI inference
+   - FastAPI API
+   - web demo accessible from other computers
+6. The web demo must run even when the knowledge base is empty.
+
+============================================================
+IMPORTANT DESIGN CHANGE
+============================================================
+
+Remove or deprecate all fine-tuning-specific workflows.
+
+Do not require:
+- training
+- LoRA
+- QLoRA
+- optimizer
+- gradient accumulation
+- model checkpoint training
+- loss computation
+- backpropagation
+- validation loss
+- train/val/test training loop
+
+The following can be kept only if useful for evaluation or compatibility:
+- dataset scanning
+- manifest generation
+- operation type extraction
+- image utilities
+- Emu3.5 adapter
+- API
+- web demo
+- inference scripts
+
+Rename or clearly separate training-related scripts so users do not accidentally run fine-tuning.
+
+============================================================
+TARGET SYSTEM ARCHITECTURE
+============================================================
+
+Please implement this architecture:
+
+vision_cad_emu35/
+  README.md
+  requirements.txt or pyproject.toml
+  configs/
+    rag.yaml
+    api.yaml
+    download_models.yaml
+  scripts/
+    download_models.py
+    prepare_manifest.py
+    build_kb.py
+    inspect_kb.py
+    infer_rag_single.py
+    infer_rag_batch.py
+    launch_api.py
+    launch_web_demo.py
+  src/
+    vision_cad_emu35/
+      __init__.py
+      config.py
+      utils/
+        image_io.py
+        logging.py
+        gpu.py
+        seed.py
+        jsonl.py
+      data/
+        scan_dataset.py
+        operation_type.py
+        manifest.py
+      rag/
+        kb_schema.py
+        build_kb.py
+        retriever.py
+        image_embedding.py
+        text_embedding.py
+        prompt_builder.py
+        example_formatter.py
+        vector_store.py
+      models/
+        emu35_adapter.py
+        generation.py
+      inference/
+        rag_single_step.py
+        autoregressive_rag.py
+      api/
+        server.py
+        schemas.py
+      web/
+        index.html
+  tests/
+    test_operation_type.py
+    test_dataset_scan.py
+    test_rag_empty_kb.py
+    test_prompt_builder.py
+    test_vector_store.py
+
+============================================================
+DATASET STRUCTURE
+============================================================
+
+The dataset layout remains:
+
+root/
+  CAD_PART_ID_VIEW_SUFFIX/
+    final_snapshot.png
+    roll_back_index_1/
+      prev_depth_map.png
+      current_depth_map.png
+      operation_param.json
+      overlayed_all.png
+    roll_back_index_3/
+      ...
+
+Rollback indices may be non-continuous.
+
+Each rollback step represents one modeling operation.
+
+Use this function to derive operation type exactly:
+
+def get_exact_operation_type_from_param(param_json_path) -> str:
+    with open(param_json_path, 'r') as f:
+        param_dict = json.load(f)
+
+    type_str = param_dict['modeling_type']
+    if type_str == 'other':
+        return param_dict['raw_type']
+
+    if 'is_symmetric' in param_dict and param_dict['is_symmetric']:
+        type_str = 'symmetric_' + type_str
+
+    if 'construct_type' in param_dict:
+        if param_dict['construct_type'] in ('NEW', 'ADD'):
+            type_str = type_str + '_add'
+        else:
+            type_str = type_str + '_cut'
+
+    if 'draft_angle' in param_dict and param_dict['draft_angle'] is not None:
+        type_str = 'draft_' + type_str
+
+    return type_str
+
+============================================================
+RAG KNOWLEDGE BASE
+============================================================
+
+Implement a knowledge base built from existing dataset samples.
+
+Each KB item should contain:
+
+- sample_id
+- cad_part_id
+- view_suffix
+- rollback_index
+- final_snapshot_path
+- prev_depth_map_path
+- current_depth_map_path
+- overlayed_all_path
+- operation_param_path
+- operation_type
+- optional text summary
+- image embedding vector
+- optional text embedding vector
+- metadata
+
+The KB should be saved to:
+
+/root/autodl-tmp/data/outputs/rag_kb/
+
+Suggested files:
+- kb_items.jsonl
+- embeddings.npy
+- faiss.index if FAISS is available
+- vector_store_meta.json
+- build_report.json
+
+The system should support an empty KB.
+
+If no KB exists or the KB contains zero items:
+- API should still launch.
+- Web demo should still launch.
+- Inference should still run.
+- Retriever should return an empty list.
+- Prompt builder should create a zero-shot prompt.
+- UI should show “No retrieved examples available; running zero-shot mode.”
+
+============================================================
+EMBEDDING STRATEGY
+============================================================
+
+Implement a practical image retrieval method.
+
+Because the query consists of:
+- final_snapshot.png
+- prev_depth_map.png
+
+Each KB item also has:
+- final_snapshot.png
+- prev_depth_map.png
+- overlayed_all.png
+- operation_type
+
+Implement at least one working embedding backend.
+
+Preferred:
+1. CLIP image embedding if available.
+2. Fallback lightweight embedding if CLIP is unavailable.
+
+The fallback should not require GPU and should be simple but functional, for example:
+- resize image to 64x64
+- convert to grayscale/RGB
+- flatten normalized pixels
+- optionally concatenate color histogram
+- concatenate embeddings of final_snapshot and prev_depth_map
+- L2-normalize vector
+
+The vector for each sample can be:
+
+embedding = concat(
+    embed_image(final_snapshot),
+    embed_image(prev_depth_map)
+)
+
+Retrieval query vector:
+
+query_embedding = concat(
+    embed_image(query_final_snapshot),
+    embed_image(query_prev_depth_map)
+)
+
+Implement:
+- cosine similarity
+- top_k retrieval
+- optional operation type filtering if user provides a hint
+- optional FAISS backend
+- pure NumPy fallback backend
+
+Do not make FAISS required.
+
+============================================================
+RETRIEVAL REQUIREMENTS
+============================================================
+
+Implement:
+
+class RagRetriever:
+    def __init__(self, kb_dir, config):
+        ...
+
+    def is_empty(self) -> bool:
+        ...
+
+    def retrieve(self, final_snapshot, prev_depth_map, top_k=3, filters=None):
+        """
+        Returns a list of retrieved examples:
+        [
+          {
+            "sample_id": str,
+            "score": float,
+            "operation_type": str,
+            "final_snapshot_path": str,
+            "prev_depth_map_path": str,
+            "overlayed_all_path": str,
+            "current_depth_map_path": str,
+            "metadata": dict
+          }
+        ]
+        """
+        ...
+
+If the KB is empty, return [] without error.
+
+============================================================
+PROMPT DESIGN
+============================================================
+
+Implement a prompt builder for Emu3.5.
+
+The query input contains:
+- final_snapshot.png
+- prev_depth_map.png
+
+Retrieved examples contain:
+- example final_snapshot.png
+- example prev_depth_map.png
+- example overlayed_all.png
+- example operation_type
+
+Because Emu3.5 supports multimodal input with multiple images, implement a configurable maximum number of retrieved examples.
+
+Default:
+- top_k = 3
+
+But because Emu3.5 may have an image limit, make this configurable:
+
+rag:
+  top_k: 3
+  max_reference_images: 6
+  include_example_outputs: true
+  include_example_final_snapshot: false
+  include_example_prev_depth_map: true
+  include_example_overlayed_all: true
+
+Default prompt image packing should be:
+
+Query images:
+1. query final_snapshot.png
+2. query prev_depth_map.png
+
+For each retrieved example:
+- include example prev_depth_map.png
+- include example overlayed_all.png
+
+Do not include too many images by default.
+
+The prompt text should include:
+
+System:
+"You are a CAD modeling planner. You infer the current CAD modeling step from visual evidence. You do not fine-tune. You use retrieved historical CAD modeling examples as references."
+
+User:
+"Image 1 is the final CAD part snapshot for the query.
+Image 2 is the previous state depth map for the query.
+
+Your task:
+Predict the current modeling operation type and generate the CAD-style preview image for this step.
+
+Preview drawing rules:
+- Keep the previous state depth map unchanged as the background.
+- Apply a semi-transparent yellow mask on the sketch reference plane.
+- Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
+- Draw the colored incremental wireframe showing the local entity created, modified, or removed in this step.
+- Draw red solid lines for the reference 2D sketch used in the current operation.
+- Draw blue solid lines for the termination face contour of the local entity.
+- Draw green solid lines for edges of the newly added solid entity in this step.
+- Draw magenta solid lines for edges of the entity cut or removed in this step.
+
+Retrieved reference examples:
+{retrieved_examples_description}
+
+Please use the retrieved examples only as references. Do not copy them blindly. Adapt the operation to the query images.
+
+Return the operation type first in this exact format:
+Operation_Type: <operation_type>
+
+Then generate one preview image."
+
+For each retrieved example, add text like:
+
+"Reference Example 1:
+Similarity score: 0.873
+Operation_Type: extrude_cut
+The following images show the previous depth map and the target preview overlay for this reference example."
+
+If no examples are retrieved, use:
+
+"No retrieved examples are available. Run in zero-shot mode using only the query images and the drawing rules."
+
+============================================================
+EMU3.5 ADAPTER
+============================================================
+
+Update:
+
+src/vision_cad_emu35/models/emu35_adapter.py
+
+The adapter should support no-fine-tuning inference only.
+
+It should expose:
+
+class Emu35Adapter:
+    def __init__(self, config):
+        ...
+
+    def load_model(self):
+        ...
+
+    def generate_multimodal(self, prompt_text, images, generation_config):
+        """
+        Args:
+            prompt_text: str
+            images: list[PIL.Image.Image]
+
+        Returns:
+            {
+                "operation_type": str,
+                "image": PIL.Image.Image | None,
+                "raw_text": str,
+                "metadata": dict
+            }
+        """
+        ...
+
+    def parse_operation_type(self, raw_text: str) -> str:
+        ...
+
+Important:
+- Remove or ignore training-specific methods such as forward_loss.
+- Do not implement fine-tuning.
+- Do not call backward.
+- Do not load LoRA checkpoints unless explicitly provided as optional adapter weights.
+- Load the frozen base model from local paths by default.
+
+Runtime model paths should remain:
+
+model:
+  model_root: "/root/autodl-tmp/data"
+  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
+  emu_repo_path: null
+  local_files_only: true
+
+If local files are missing, fail early with:
+
+"Local Emu3.5 weights not found. Please run: python scripts/download_models.py"
+
+Do not download anything inside Emu35Adapter.
+
+============================================================
+CONFIG
+============================================================
+
+Create configs/rag.yaml:
+
+model:
+  model_root: "/root/autodl-tmp/data"
+  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
+  emu_repo_path: null
+  local_files_only: true
+  trust_remote_code: true
+  image_size: 512
+  precision: "bf16"
+
+data:
+  dataset_root: "/path/to/your/dataset"
+  manifest_dir: "data/manifests"
+
+rag:
+  kb_dir: "outputs/rag_kb"
+  embedding_backend: "simple"
+  vector_backend: "numpy"
+  top_k: 3
+  max_reference_images: 6
+  include_example_outputs: true
+  include_example_final_snapshot: false
+  include_example_prev_depth_map: true
+  include_example_overlayed_all: true
+  allow_empty_kb: true
+
+generation:
+  max_new_tokens: 1024
+  temperature: 0.2
+  top_p: 0.9
+  do_sample: false
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  artifacts_dir: "outputs/api_artifacts"
+  cors_origins:
+    - "*"
+
+web:
+  title: "Vision CAD Emu3.5 RAG Demo"
+  allow_upload_kb: false
+  show_retrieved_examples: true
+
+============================================================
+SCRIPTS
+============================================================
+
+Please implement these scripts.
+
+1. scripts/prepare_manifest.py
+
+Keep or adapt the existing manifest generation.
+
+2. scripts/build_kb.py
+
+Usage:
+
+python scripts/build_kb.py \
+  --config configs/rag.yaml \
+  --dataset-root /path/to/dataset \
+  --kb-dir outputs/rag_kb
+
+Behavior:
+- scan dataset or read manifest
+- build KB items
+- compute embeddings
+- save kb_items.jsonl
+- save embeddings.npy
+- save vector_store_meta.json
+- save build_report.json
+
+If dataset is empty, still create an empty KB directory with valid metadata.
+
+3. scripts/inspect_kb.py
+
+Usage:
+
+python scripts/inspect_kb.py \
+  --kb-dir outputs/rag_kb
+
+Print:
+- number of items
+- operation type histogram
+- embedding shape
+- whether vector index exists
+- example item paths
+
+Should work for empty KB.
+
+4. scripts/infer_rag_single.py
+
+Usage:
+
+python scripts/infer_rag_single.py \
+  --config configs/rag.yaml \
+  --final-snapshot examples/final_snapshot.png \
+  --prev-depth-map examples/prev_depth_map.png \
+  --output-dir outputs/rag_single
+
+Behavior:
+- load retriever
+- retrieve top_k examples
+- build prompt
+- load frozen Emu3.5
+- generate operation type and overlay image
+- save:
+  - operation_type.txt
+  - overlayed_all.png if image exists
+  - prompt.txt
+  - retrieved_examples.json
+  - response.json
+
+If KB is empty:
+- run zero-shot
+- save retrieved_examples.json as []
+- save a warning in response.json
+
+5. scripts/infer_rag_batch.py
+
+Input:
+- manifest jsonl
+- output dir
+
+Run RAG inference for each sample.
+
+6. scripts/launch_api.py
+
+Launch FastAPI.
+
+7. scripts/launch_web_demo.py
+
+Launch web demo.
+
+============================================================
+API REQUIREMENTS
+============================================================
+
+Implement FastAPI endpoints:
+
+GET /health
+
+Return:
+- status
+- model_loaded
+- kb_loaded
+- kb_empty
+- kb_item_count
+- device info if available
+
+POST /generate
+
+Accept multipart form:
+- final_snapshot: image
+- prev_depth_map: image
+- top_k: optional int
+- prompt_extra: optional str
+
+Return:
+- operation_type
+- generated image as base64 or URL
+- retrieved examples
+- zero_shot: true/false
+- metadata
+
+POST /retrieve
+
+Accept:
+- final_snapshot
+- prev_depth_map
+- top_k
+
+Return retrieved examples only.
+
+POST /reload_kb
+
+Reload KB from disk.
+
+Important:
+- API must work even when KB is empty.
+- API must work even before any KB has been built.
+- If KB directory does not exist, initialize an empty retriever.
+- Web demo should still open and allow generation in zero-shot mode.
+
+============================================================
+WEB DEMO REQUIREMENTS
+============================================================
+
+Build a web page that other computers can access through the server IP.
+
+Server should bind to:
+
+0.0.0.0
+
+Default port:
+
+8000
+
+The web page should allow:
+- upload final_snapshot.png
+- upload prev_depth_map.png
+- choose top_k
+- optional extra prompt
+- click "Generate"
+- show:
+  - query final snapshot
+  - query previous depth map
+  - predicted operation type
+  - generated overlay image
+  - retrieved examples with similarity scores
+  - zero-shot warning when KB is empty
+  - latency
+  - backend status
+
+The web page must be usable when KB is empty:
+- Show message:
+  "Knowledge base is empty. The system is running in zero-shot mode."
+- Still allow generation.
+
+Use plain HTML/CSS/JavaScript or Gradio. Prefer plain FastAPI-served HTML if it is simpler to deploy on a remote server.
+
+The page should be accessible from another computer by visiting:
+
+http://SERVER_IP:8000
+
+Make sure CORS and static file serving are configured correctly.
+
+============================================================
+RAG EMPTY KB REQUIREMENT
+============================================================
+
+This is critical.
+
+The entire system must run when the knowledge base is empty.
+
+Cases to support:
+1. outputs/rag_kb does not exist.
+2. outputs/rag_kb exists but contains zero items.
+3. kb_items.jsonl exists but is empty.
+4. embeddings.npy does not exist.
+5. embeddings.npy exists with shape (0, dim).
+
+In all cases:
+- retriever.is_empty() should return True.
+- retrieve() should return [].
+- prompt builder should build a zero-shot prompt.
+- API should not crash.
+- web demo should not crash.
+- user should be able to test Emu3.5 zero-shot behavior.
+
+Add tests for empty KB behavior.
+
+============================================================
+DOWNLOAD MODELS
+============================================================
+
+Keep the existing local model download system.
+
+The default local model paths should remain:
+
+/root/autodl-tmp/data/BAAI/Emu3.5
+/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer
+
+If the current project supports ModelScope download, keep ModelScope as the default download backend. Hugging Face can remain as optional fallback.
+
+Do not change runtime loading to online model ids. Runtime should load local paths by default.
+
+============================================================
+README UPDATE
+============================================================
+
+Update README.md to describe the new RAG-based workflow.
+
+The new normal workflow should be:
+
+1. Download models without GPU:
+
+python scripts/download_models.py
+
+2. Edit dataset path in configs/rag.yaml:
+
+data:
+  dataset_root: "/path/to/your/dataset"
+
+3. Prepare manifest:
+
+python scripts/prepare_manifest.py \
+  --dataset-root /path/to/your/dataset \
+  --manifest-dir data/manifests \
+  --add-stop-samples
+
+4. Build RAG knowledge base:
+
+python scripts/build_kb.py \
+  --config configs/rag.yaml \
+  --dataset-root /path/to/your/dataset \
+  --kb-dir outputs/rag_kb
+
+5. Inspect KB:
+
+python scripts/inspect_kb.py \
+  --kb-dir outputs/rag_kb
+
+6. Run single inference:
+
+python scripts/infer_rag_single.py \
+  --config configs/rag.yaml \
+  --final-snapshot examples/final_snapshot.png \
+  --prev-depth-map examples/prev_depth_map.png \
+  --output-dir outputs/rag_single
+
+7. Launch web demo:
+
+python scripts/launch_web_demo.py \
+  --config configs/rag.yaml
+
+Then open:
+
+http://SERVER_IP:8000
+
+Also document empty KB mode:
+
+If no knowledge base exists, the API and web demo still run in zero-shot mode.
+
+============================================================
+CLEANUP REQUIREMENTS
+============================================================
+
+Since this project is no longer a fine-tuning project:
+
+- Remove or clearly deprecate scripts/train.py.
+- Remove or clearly deprecate training configs such as configs/train_80gb.yaml.
+- Remove or clearly deprecate trainer modules.
+- Do not let README recommend fine-tuning as the default workflow.
+- If you keep old files for reference, put them under legacy_finetune/ or mark them clearly as deprecated.
+
+============================================================
+TESTS
+============================================================
+
+Add or update tests:
+
+1. test_rag_empty_kb.py
+   - missing KB dir
+   - empty kb_items.jsonl
+   - retrieve returns []
+   - prompt builder uses zero-shot prompt
+
+2. test_prompt_builder.py
+   - prompt with retrieved examples
+   - prompt without examples
+   - max_reference_images respected
+
+3. test_vector_store.py
+   - build vector store with simple embeddings
+   - top-k retrieval works
+   - empty vector store works
+
+4. existing tests:
+   - operation type extraction
+   - dataset scanning
+
+============================================================
+IMPLEMENTATION PRIORITY
+============================================================
+
+Please prioritize:
+
+1. Fully working empty-KB web demo.
+2. Fully working KB build and retrieval using simple CPU embeddings.
+3. Clean RAG prompt builder.
+4. Frozen Emu3.5 inference through the adapter.
+5. API endpoints.
+6. Documentation.
+
+Do not spend effort on fine-tuning.
+
+Please actually modify the codebase accordingly.
 
 
 

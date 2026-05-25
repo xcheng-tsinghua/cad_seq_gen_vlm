@@ -3,86 +3,76 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>vision_cad_emu35</title>
+  <title>Vision CAD Emu3.5 RAG Demo</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f7f7f4;
-      --ink: #171717;
-      --muted: #6b6b64;
-      --line: #d7d6cf;
-      --accent: #087f8c;
+      --bg: #f5f6f3;
       --panel: #ffffff;
+      --ink: #171717;
+      --muted: #656b70;
+      --line: #d8ddd8;
+      --accent: #0b7f82;
+      --warn: #9a5b00;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
       color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     header {
-      padding: 20px 28px 14px;
-      border-bottom: 1px solid var(--line);
       background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 18px 24px;
       display: flex;
+      align-items: center;
       justify-content: space-between;
       gap: 16px;
-      align-items: center;
     }
-    h1 { font-size: 20px; margin: 0; letter-spacing: 0; }
-    main { padding: 24px 28px; max-width: 1280px; margin: 0 auto; }
-    .workspace {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 20px;
-      align-items: start;
-    }
-    form {
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0; }
+    main { max-width: 1360px; margin: 0 auto; padding: 22px 24px; }
+    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+    form, .panel {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 16px;
-      display: grid;
-      gap: 14px;
     }
-    label { display: grid; gap: 7px; font-size: 13px; color: var(--muted); }
-    input[type=file], textarea {
+    form { display: grid; gap: 14px; }
+    label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; }
+    input[type=file], input[type=number], textarea {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 10px;
-      background: #fff;
+      font: inherit;
       color: var(--ink);
+      background: white;
     }
-    textarea { min-height: 120px; resize: vertical; }
+    textarea { min-height: 96px; resize: vertical; }
     button {
       border: 0;
       border-radius: 6px;
       padding: 11px 12px;
-      background: var(--accent);
       color: white;
-      font-weight: 650;
+      background: var(--accent);
+      font-weight: 700;
       cursor: pointer;
     }
     button:disabled { opacity: .55; cursor: wait; }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
-    }
+    .images { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
     figure {
       margin: 0;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       overflow: hidden;
-      min-height: 260px;
     }
     figcaption {
-      padding: 10px 12px;
-      font-size: 13px;
+      padding: 9px 11px;
       color: var(--muted);
+      font-size: 13px;
       border-bottom: 1px solid var(--line);
     }
     img {
@@ -92,32 +82,41 @@
       object-fit: contain;
       background: #111;
     }
-    .result {
-      margin-top: 16px;
-      background: var(--panel);
+    .result { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; }
+    .metric { min-width: 170px; }
+    .metric b { display: block; color: var(--muted); font-size: 12px; font-weight: 550; }
+    .metric span { display: block; font-size: 18px; font-weight: 750; overflow-wrap: anywhere; }
+    .notice {
+      margin: 14px 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #fff7e6;
+      color: var(--warn);
+      border: 1px solid #ead39a;
+      display: none;
+    }
+    .examples { margin-top: 16px; display: grid; gap: 10px; }
+    .example {
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 14px;
-      display: flex;
-      gap: 24px;
-      flex-wrap: wrap;
+      background: var(--panel);
+      padding: 12px;
     }
-    .metric { min-width: 160px; }
-    .metric b { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
-    .metric span { font-size: 18px; font-weight: 700; }
-    @media (max-width: 900px) {
-      .workspace { grid-template-columns: 1fr; }
-      .grid { grid-template-columns: 1fr; }
+    .example strong { display: block; margin-bottom: 4px; }
+    .status { color: var(--muted); font-size: 14px; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .images { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>vision_cad_emu35</h1>
-    <span id="status">checking...</span>
+    <h1>Vision CAD Emu3.5 RAG Demo</h1>
+    <span id="status" class="status">checking...</span>
   </header>
   <main>
-    <div class="workspace">
+    <div class="layout">
       <form id="form">
         <label>Final snapshot
           <input id="final" name="final_snapshot" type="file" accept="image/*" required />
@@ -125,19 +124,22 @@
         <label>Previous depth map
           <input id="prev" name="prev_depth_map" type="file" accept="image/*" required />
         </label>
-        <label>Optional prompt
-          <textarea id="prompt" name="prompt"></textarea>
+        <label>Top K
+          <input id="topK" name="top_k" type="number" min="0" max="10" value="3" />
         </label>
-        <button id="submit" type="submit">Generate Step Preview</button>
+        <label>Extra prompt
+          <textarea id="promptExtra" name="prompt_extra"></textarea>
+        </label>
+        <button id="submit" type="submit">Generate</button>
       </form>
       <section>
-        <div class="grid">
+        <div class="images">
           <figure>
-            <figcaption>Final snapshot</figcaption>
+            <figcaption>Query final snapshot</figcaption>
             <img id="finalPreview" alt="" />
           </figure>
           <figure>
-            <figcaption>Previous depth map</figcaption>
+            <figcaption>Query previous depth map</figcaption>
             <img id="prevPreview" alt="" />
           </figure>
           <figure>
@@ -145,11 +147,14 @@
             <img id="outPreview" alt="" />
           </figure>
         </div>
-        <div class="result">
+        <div id="notice" class="notice"></div>
+        <div class="panel result">
           <div class="metric"><b>Operation type</b><span id="op">-</span></div>
           <div class="metric"><b>Latency</b><span id="latency">-</span></div>
-          <div class="metric"><b>GPU memory</b><span id="gpu">-</span></div>
+          <div class="metric"><b>KB items</b><span id="kbCount">-</span></div>
+          <div class="metric"><b>Model</b><span id="modelState">-</span></div>
         </div>
+        <div class="examples" id="examples"></div>
       </section>
     </div>
   </main>
@@ -158,29 +163,68 @@
     const finalInput = document.getElementById('final');
     const prevInput = document.getElementById('prev');
     const submit = document.getElementById('submit');
+    const notice = document.getElementById('notice');
+    const examples = document.getElementById('examples');
     const setPreview = (input, image) => {
       if (input.files && input.files[0]) image.src = URL.createObjectURL(input.files[0]);
     };
     finalInput.addEventListener('change', () => setPreview(finalInput, document.getElementById('finalPreview')));
     prevInput.addEventListener('change', () => setPreview(prevInput, document.getElementById('prevPreview')));
+
+    function showNotice(text) {
+      notice.textContent = text || '';
+      notice.style.display = text ? 'block' : 'none';
+    }
+
+    function renderExamples(items) {
+      examples.innerHTML = '';
+      if (!items || items.length === 0) {
+        const div = document.createElement('div');
+        div.className = 'example';
+        div.textContent = 'No retrieved examples available; running zero-shot mode.';
+        examples.appendChild(div);
+        return;
+      }
+      items.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'example';
+        const score = typeof item.score === 'number' ? item.score.toFixed(3) : 'n/a';
+        div.innerHTML = `<strong>Reference ${idx + 1}: ${item.operation_type || 'unknown'}</strong>` +
+          `<div>Similarity score: ${score}</div>` +
+          `<div>Sample: ${item.sample_id || ''}</div>`;
+        examples.appendChild(div);
+      });
+    }
+
     fetch('/health').then(r => r.json()).then(j => {
-      document.getElementById('status').textContent = j.model_loaded ? 'model loaded' : 'model not loaded';
-    }).catch(() => { document.getElementById('status').textContent = 'server unavailable'; });
+      document.getElementById('status').textContent = j.kb_empty
+        ? 'KB empty, zero-shot ready'
+        : `KB ready: ${j.kb_item_count} items`;
+      document.getElementById('kbCount').textContent = String(j.kb_item_count);
+      document.getElementById('modelState').textContent = j.model_loaded ? 'loaded' : 'not loaded';
+      if (j.kb_empty) showNotice('Knowledge base is empty. The system is running in zero-shot mode.');
+    }).catch(() => {
+      document.getElementById('status').textContent = 'server unavailable';
+    });
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       submit.disabled = true;
+      showNotice('');
       const data = new FormData(form);
       try {
         const response = await fetch('/generate', { method: 'POST', body: data });
         const json = await response.json();
         if (!response.ok) throw new Error(json.detail || 'request failed');
-        document.getElementById('op').textContent = json.operation_type;
+        document.getElementById('op').textContent = json.operation_type || '-';
         document.getElementById('latency').textContent = `${json.latency_seconds.toFixed(2)} s`;
-        const gpu = json.metadata && json.metadata.gpu ? json.metadata.gpu : {};
-        document.getElementById('gpu').textContent = gpu.allocated_gb !== undefined ? `${gpu.allocated_gb} GB` : '-';
-        document.getElementById('outPreview').src = `data:image/png;base64,${json.image_base64}`;
+        if (json.image_base64) {
+          document.getElementById('outPreview').src = `data:image/png;base64,${json.image_base64}`;
+        }
+        renderExamples(json.retrieved_examples || []);
+        if (json.zero_shot) showNotice('Knowledge base is empty. The system is running in zero-shot mode.');
       } catch (err) {
-        document.getElementById('op').textContent = err.message;
+        showNotice(err.message);
       } finally {
         submit.disabled = false;
       }
@@ -188,4 +232,3 @@
   </script>
 </body>
 </html>
-
