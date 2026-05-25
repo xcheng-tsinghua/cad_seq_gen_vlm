@@ -19,8 +19,6 @@ pip install -U modelscope
 pip install -e ".[dev]"
 ```
 
-Install the official Emu3.5 runtime code separately. If its utilities are not importable, set `model.emu_repo_path` in `configs/rag.yaml` to a local checkout of the official Emu3.5 repo.
-
 ## NVIDIA RTX PRO 6000 Blackwell Setup
 
 Blackwell GPUs require a recent NVIDIA driver and a PyTorch build with CUDA 12.8 or newer. Do not let `pip install -e .` choose a generic PyTorch wheel; `pyproject.toml` intentionally does not depend on `torch`.
@@ -85,6 +83,53 @@ python scripts/download_models.py \
 
 Runtime loading always uses local paths by default. The adapter does not download anything.
 
+## Install Official Emu3.5 Runtime Source Code
+
+This project downloads Emu3.5 model weights, but it also needs the official Emu3.5 source code at runtime. [models/emu35_adapter.py](src/vision_cad_emu35/models/emu35_adapter.py) imports official utilities such as `build_emu3p5`, `build_image`, `generate`, and `multimodal_decode`.
+
+Recommended checkout path:
+
+```text
+/root/autodl-tmp/data/Emu3.5
+```
+
+Clone the official runtime source:
+
+```bash
+cd /root/autodl-tmp/data
+git clone https://github.com/baaivision/Emu3.5.git
+```
+
+If GitHub access is slow, manually download/upload the repo or use an available GitHub mirror/proxy.
+
+Then confirm `configs/rag.yaml` points to that checkout while keeping the local model-weight paths:
+
+```yaml
+model:
+  model_root: "/root/autodl-tmp/data"
+  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
+  emu_repo_path: "/root/autodl-tmp/data/Emu3.5"
+  local_files_only: true
+```
+
+Do not let the official Emu3.5 requirements reinstall or downgrade torch. The Blackwell environment should keep its CUDA-compatible torch build, such as `torch 2.12.0+cu130`.
+
+If you install official Emu3.5 dependencies, filter out torch and optional acceleration packages first:
+
+```bash
+cp /root/autodl-tmp/data/Emu3.5/requirements.txt /tmp/emu35_requirements_no_torch.txt
+sed -i '/^torch/d;/^torchvision/d;/^torchaudio/d;/flash-attn/d;/flash_attn/d;/xformers/d;/bitsandbytes/d' /tmp/emu35_requirements_no_torch.txt
+pip install -r /tmp/emu35_requirements_no_torch.txt
+```
+
+Check that the adapter can import the official runtime utilities:
+
+```bash
+python scripts/check_emu35_imports.py --config configs/rag.yaml
+```
+
 ## Dataset Layout
 
 ```text
@@ -104,7 +149,39 @@ Rollback indices may be non-continuous. Operation types are derived exactly from
 
 ## Normal RAG Workflow
 
-1. Edit dataset path in `configs/rag.yaml`:
+1. Check GPU environment:
+
+```bash
+python scripts/check_gpu_env.py
+```
+
+2. Download model weights:
+
+```bash
+python scripts/download_models.py
+```
+
+3. Install or configure official Emu3.5 runtime source code:
+
+```bash
+cd /root/autodl-tmp/data
+git clone https://github.com/baaivision/Emu3.5.git
+```
+
+Make sure `configs/rag.yaml` contains:
+
+```yaml
+model:
+  emu_repo_path: "/root/autodl-tmp/data/Emu3.5"
+```
+
+4. Check official Emu3.5 imports:
+
+```bash
+python scripts/check_emu35_imports.py --config configs/rag.yaml
+```
+
+5. Edit dataset path in `configs/rag.yaml`:
 
 ```yaml
 data:
@@ -118,7 +195,7 @@ rag:
   kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
 ```
 
-2. Prepare manifest:
+6. Prepare manifest:
 
 ```bash
 python scripts/prepare_manifest.py \
@@ -127,7 +204,7 @@ python scripts/prepare_manifest.py \
   --add-stop-samples
 ```
 
-3. Build RAG knowledge base:
+7. Build RAG knowledge base:
 
 ```bash
 python scripts/build_kb.py \
@@ -135,14 +212,14 @@ python scripts/build_kb.py \
   --dataset-root /path/to/your/dataset
 ```
 
-4. Inspect KB:
+8. Inspect KB:
 
 ```bash
 python scripts/inspect_kb.py \
   --config configs/rag.yaml
 ```
 
-5. Run single inference:
+9. Run single inference:
 
 ```bash
 python scripts/infer_rag_single.py \
@@ -152,7 +229,7 @@ python scripts/infer_rag_single.py \
   --output-dir outputs/rag_single
 ```
 
-6. Launch web demo:
+10. Launch web demo:
 
 ```bash
 python scripts/launch_web_demo.py \
