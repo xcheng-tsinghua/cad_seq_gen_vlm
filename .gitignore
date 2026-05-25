@@ -14,3 +14,5 @@ pretrained_lm/
 # every file inside it.
 pretrained_lm/*
 !pretrained_lm/.gitkeep
+
+.venv/
