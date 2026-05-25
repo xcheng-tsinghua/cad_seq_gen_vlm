@@ -10,7 +10,7 @@ model:
   precision: "bf16"
 
 data:
-  dataset_root: "/path/to/your/dataset"
+  dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img"
   manifest_dir: "data/manifests"
 
 rag:
