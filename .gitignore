@@ -15,4 +15,4 @@ pretrained_lm/
 pretrained_lm/*
 !pretrained_lm/.gitkeep
 
-.venv/
+vision_cad_emu35/.venv/

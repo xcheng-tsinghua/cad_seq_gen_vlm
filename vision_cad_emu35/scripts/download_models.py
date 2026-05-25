@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--output-dir", default=DEFAULT_MODEL_ROOT)
-    parser.add_argument("--revision", default="main")
+    parser.add_argument("--revision", default="master")
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--force", action="store_true", help="Delete an existing local repo directory and download again.")
