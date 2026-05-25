@@ -1,14 +1,16 @@
 model:
-  model_id_or_path: "BAAI/Emu3.5"
+  model_root: "/root/autodl-tmp/data"
+  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
+  emu_repo_path: null
+  local_files_only: true
   trust_remote_code: true
   image_size: 512
   precision: "bf16"
   use_lora: false
   use_qlora: false
   gradient_checkpointing: false
-  tokenizer_path: "BAAI/Emu3.5"
-  vision_tokenizer_path: "BAAI/Emu3.5-VisionTokenizer"
-  emu_repo_path: null
   vq_type: "ibq"
 
 data:

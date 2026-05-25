@@ -4,20 +4,27 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from vision_cad_emu35.model_paths import DEFAULT_MODEL_ROOT, default_local_model_paths
+
+
+_DEFAULT_MODEL_PATHS = default_local_model_paths(DEFAULT_MODEL_ROOT)
+
 
 @dataclass
 class ModelConfig:
-    model_id_or_path: str = "BAAI/Emu3.5"
+    model_root: str = DEFAULT_MODEL_ROOT
+    model_id_or_path: str = _DEFAULT_MODEL_PATHS["model_id_or_path"]
     trust_remote_code: bool = True
     image_size: int = 512
     precision: str = "bf16"
     quantization: str | None = None
     device_map: str | None = "auto"
-    tokenizer_path: str | None = "BAAI/Emu3.5"
+    tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["tokenizer_path"]
     tokenizer_id_or_path: str | None = None
-    vision_tokenizer_path: str | None = "BAAI/Emu3.5-VisionTokenizer"
+    vision_tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["vision_tokenizer_path"]
     vq_path: str | None = None
     emu_repo_path: str | None = None
+    local_files_only: bool = True
     vq_type: str = "ibq"
     device: str | None = None
     vq_device: str | None = None

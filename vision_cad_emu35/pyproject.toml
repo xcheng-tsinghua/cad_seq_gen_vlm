@@ -15,6 +15,7 @@ dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
   "python-multipart>=0.0.9",
+  "huggingface_hub>=0.23",
   "pydantic>=2.0",
   "torch>=2.1",
   "transformers>=4.40",
@@ -38,4 +39,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-

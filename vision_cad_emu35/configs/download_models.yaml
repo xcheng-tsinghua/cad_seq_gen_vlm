@@ -1,0 +1,7 @@
+model_root: "/root/autodl-tmp/data"
+main_repo_id: "BAAI/Emu3.5"
+vision_tokenizer_repo_id: "BAAI/Emu3.5-VisionTokenizer"
+revision: "main"
+resume: true
+local_dir_use_symlinks: false
+

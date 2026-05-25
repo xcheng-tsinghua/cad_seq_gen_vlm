@@ -51,18 +51,80 @@ Official references:
 cd vision_cad_emu35
 python -m venv .venv
 . .venv/bin/activate
+pip install -U huggingface_hub
 pip install -e ".[dev,eval]"
 ```
 
-Install the official Emu3.5 dependencies and set these config values:
+Install the official Emu3.5 runtime dependencies after the weights are local. The runtime configs default to local paths under `/root/autodl-tmp/data` and `local_files_only: true`, so training and inference will not silently download from Hugging Face.
+
+## Download Models Without GPU
+
+The downloader is CPU-only: it does not import `torch`, does not touch CUDA, and does not load the model.
+
+```bash
+python scripts/download_models.py
+```
+
+This downloads:
+
+```text
+/root/autodl-tmp/data/BAAI/Emu3.5
+/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer
+```
+
+The default command is equivalent to:
+
+```bash
+python scripts/download_models.py \
+  --output-dir /root/autodl-tmp/data/ \
+  --main-repo-id BAAI/Emu3.5 \
+  --vision-tokenizer-repo-id BAAI/Emu3.5-VisionTokenizer \
+  --revision main \
+  --resume
+```
+
+For gated/private access, use one of:
+
+```bash
+huggingface-cli login
+HF_TOKEN=... python scripts/download_models.py
+python scripts/download_models.py --hf-token ...
+```
+
+If you use a Hugging Face mirror, set `HF_ENDPOINT` before running the downloader. The script writes `download_record.json` in each local repo directory and prints this snippet when done:
 
 ```yaml
 model:
-  model_id_or_path: "/path/or/hf/id/to/Emu3.5"
-  tokenizer_path: "/path/or/hf/id/to/Emu3.5"
-  vision_tokenizer_path: "/path/or/hf/id/to/Emu3.5-VisionTokenizer"
-  emu_repo_path: "/path/to/Emu3.5/repo"  # optional if already importable
+  model_root: "/root/autodl-tmp/data"
+  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
+  emu_repo_path: null
+  local_files_only: true
 ```
+
+The official Emu3.5 Python utilities still need to be installed or importable. If they are not in the Python environment, set `model.emu_repo_path` to a local checkout of the official repo.
+
+## Normal Workflow
+
+1. Download models:
+
+```bash
+python scripts/download_models.py
+```
+
+2. Edit only the dataset path in `configs/train_80gb.yaml`:
+
+```yaml
+data:
+  dataset_root: "/my/dataset/path"
+```
+
+3. Prepare the manifest.
+
+4. Train.
+
+Inference, API, and web demo configs already use the same local model paths.
 
 ## Dataset Layout
 
@@ -82,6 +144,13 @@ root/
 Rollback indices do not need to be continuous. Splits are deterministic by `cad_part_id` by default to avoid leakage across views and steps.
 
 ## Prepare Manifests
+
+Edit only the training dataset path in `configs/train_80gb.yaml`:
+
+```yaml
+data:
+  dataset_root: "/path/to/your/dataset"
+```
 
 ```bash
 python scripts/prepare_manifest.py \
@@ -155,6 +224,8 @@ python scripts/infer_single.py \
   --output-dir outputs/infer_single
 ```
 
+Inference uses the local model paths in `configs/infer.yaml` automatically.
+
 ## Batch Inference
 
 ```bash
@@ -199,6 +270,8 @@ python scripts/launch_api.py \
   --checkpoint outputs/emu35_finetune/best
 ```
 
+The API and web demo use the local model paths in `configs/api.yaml` automatically.
+
 Endpoints:
 
 - `GET /health`
@@ -215,6 +288,51 @@ python scripts/launch_web_demo.py \
 ```
 
 Open the URL printed by the script. The demo lets you upload the final snapshot and previous depth map, then displays the predicted operation and generated overlay.
+
+## Changing the Local Model Root
+
+The default local model root is:
+
+```text
+/root/autodl-tmp/data/
+```
+
+To change it without editing YAML:
+
+```bash
+python scripts/download_models.py --output-dir /new/model/root
+
+python scripts/train.py \
+  --config configs/train_80gb.yaml \
+  --model-root /new/model/root
+```
+
+The same `--model-root` override is supported by:
+
+- `scripts/train.py`
+- `scripts/evaluate.py`
+- `scripts/infer_single.py`
+- `scripts/infer_batch.py`
+- `scripts/infer_autoregressive.py`
+- `scripts/launch_api.py`
+- `scripts/launch_web_demo.py`
+
+Or edit YAML directly:
+
+```yaml
+model:
+  model_root: "/new/model/root"
+  model_id_or_path: "/new/model/root/BAAI/Emu3.5"
+  tokenizer_path: "/new/model/root/BAAI/Emu3.5"
+  vision_tokenizer_path: "/new/model/root/BAAI/Emu3.5-VisionTokenizer"
+  local_files_only: true
+```
+
+If `local_files_only: true` and any required local directory is missing, runtime scripts fail early with:
+
+```text
+Local Emu3.5 weights not found. Please run: python scripts/download_models.py
+```
 
 ## Tests
 
@@ -237,4 +355,3 @@ The tests do not require Emu3.5. They cover operation type derivation, dataset s
 - Add multi-view sample packing.
 - Add distributed training profiles.
 - Add richer operation-type constrained decoding.
-

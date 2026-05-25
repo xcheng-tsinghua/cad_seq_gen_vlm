@@ -4,6 +4,7 @@ import json
 import re
 import sys
 from dataclasses import asdict
+from inspect import Parameter, signature
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,6 +13,7 @@ from PIL import Image
 
 from vision_cad_emu35.config import GenerationConfig, ModelConfig
 from vision_cad_emu35.data.dataset import SYSTEM_PROMPT, USER_PROMPT
+from vision_cad_emu35.model_paths import DOWNLOAD_COMMAND, ensure_default_local_model_paths, validate_local_model_paths
 from vision_cad_emu35.utils.gpu import get_gpu_info
 from vision_cad_emu35.utils.image_io import resize_pad_image
 
@@ -61,6 +63,9 @@ class Emu35Adapter:
 
     def load_model(self) -> None:
         """Load Emu3.5 through the official repo utilities if available."""
+        ensure_default_local_model_paths(self.config)
+        validate_local_model_paths(self.config)
+        self.extra_config.update(asdict(self.config))
         self._prepare_import_path()
         official = self._import_official_utilities()
         if official is None:
@@ -82,23 +87,38 @@ class Emu35Adapter:
         if not vq_path:
             raise ValueError(
                 "Emu3.5 requires a vision tokenizer. Set model.vision_tokenizer_path "
-                "or model.vq_path, for example BAAI/Emu3.5-VisionTokenizer."
+                "or model.vq_path to the local downloaded vision tokenizer directory."
             )
 
         device = self.extra_config.get("device") or ("cuda:0" if torch.cuda.is_available() else "cpu")
         model_device = self.config.device_map or self.extra_config.get("hf_device") or device
         vq_device = self.extra_config.get("vq_device") or device
         build_kwargs = dict(self.extra_config.get("diffusion_decoder_kwargs") or {})
+        if self.config.local_files_only:
+            build_kwargs = self._maybe_add_supported_kwarg(
+                official["build_emu3p5"],
+                build_kwargs,
+                "local_files_only",
+                True,
+            )
 
-        self.model, self.tokenizer, self.vq_model = official["build_emu3p5"](
-            model_path,
-            tokenizer_path,
-            vq_path,
-            vq_type=self.extra_config.get("vq_type", "ibq"),
-            model_device=model_device,
-            vq_device=vq_device,
-            **build_kwargs,
-        )
+        try:
+            self.model, self.tokenizer, self.vq_model = official["build_emu3p5"](
+                model_path,
+                tokenizer_path,
+                vq_path,
+                vq_type=self.extra_config.get("vq_type", "ibq"),
+                model_device=model_device,
+                vq_device=vq_device,
+                **build_kwargs,
+            )
+        except Exception as exc:
+            if self.config.local_files_only:
+                raise RuntimeError(
+                    "Failed to load Emu3.5 from local files. Confirm the local paths in the config "
+                    f"or run: {DOWNLOAD_COMMAND}. Original error: {exc}"
+                ) from exc
+            raise
         self.device = getattr(self.model, "device", torch.device(device))
         if self.config.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_enable"):
             self.model.gradient_checkpointing_enable()
@@ -290,6 +310,18 @@ class Emu35Adapter:
             if repo not in sys.path:
                 sys.path.insert(0, repo)
 
+    def _maybe_add_supported_kwarg(self, fn: Any, kwargs: dict[str, Any], name: str, value: Any) -> dict[str, Any]:
+        try:
+            sig = signature(fn)
+        except (TypeError, ValueError):
+            return kwargs
+        supports_var_kwargs = any(param.kind == Parameter.VAR_KEYWORD for param in sig.parameters.values())
+        if supports_var_kwargs or name in sig.parameters:
+            updated = dict(kwargs)
+            updated.setdefault(name, value)
+            return updated
+        return kwargs
+
     def _import_official_utilities(self) -> dict[str, Any] | None:
         try:
             from src.utils.generation_utils import generate, multimodal_decode
@@ -310,6 +342,7 @@ class Emu35Adapter:
         cfg.model_path = self.config.model_id_or_path
         cfg.tokenizer_path = self.extra_config.get("tokenizer_path") or self.config.model_id_or_path
         cfg.vq_path = self.extra_config.get("vision_tokenizer_path") or self.extra_config.get("vq_path")
+        cfg.local_files_only = self.config.local_files_only
         cfg.vq_type = self.extra_config.get("vq_type", "ibq")
         cfg.task_type = self.extra_config.get("task_type", "x2i")
         cfg.use_image = True

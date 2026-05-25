@@ -16,6 +16,7 @@ from vision_cad_emu35.eval.metrics_image import compute_image_metrics
 from vision_cad_emu35.eval.metrics_text import summarize_text_metrics
 from vision_cad_emu35.eval.report import save_confusion_matrix_png, save_metrics, save_qualitative_grid
 from vision_cad_emu35.inference.single_step import load_adapter_for_inference
+from vision_cad_emu35.model_paths import apply_model_root_override, ensure_default_local_model_paths, validate_local_model_paths
 from vision_cad_emu35.utils.jsonl import write_jsonl
 from vision_cad_emu35.utils.logging import setup_logging
 
@@ -27,10 +28,14 @@ def main() -> None:
     parser.add_argument("--split", default="test", choices=["train", "val", "test"])
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--model-root", default=None, help="Override local model root and derive Emu3.5 paths.")
     args = parser.parse_args()
 
     setup_logging()
     config = load_config(args.config)
+    apply_model_root_override(config.model, args.model_root)
+    ensure_default_local_model_paths(config.model)
+    validate_local_model_paths(config.model)
     output_dir = Path(args.output_dir or Path(config.data.output_dir) / f"eval_{args.split}")
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset = CADStepDataset(Path(config.data.manifest_dir) / f"{args.split}.jsonl", image_size=config.data.image_size)
@@ -94,4 +99,3 @@ def _average_nested(rows: list[dict]) -> dict:
 
 if __name__ == "__main__":
     main()
-

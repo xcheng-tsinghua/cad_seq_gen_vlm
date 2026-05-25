@@ -6,11 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from vision_cad_emu35.config import AppConfig
+from vision_cad_emu35.model_paths import ensure_default_local_model_paths, validate_local_model_paths
 from vision_cad_emu35.models.emu35_adapter import Emu35Adapter
 from vision_cad_emu35.utils.image_io import load_image_rgb, save_image
 
 
 def load_adapter_for_inference(config: AppConfig, checkpoint: str | Path | None = None) -> Emu35Adapter:
+    ensure_default_local_model_paths(config.model)
+    validate_local_model_paths(config.model)
     adapter = Emu35Adapter(config.model)
     adapter.load_model()
     if checkpoint:
@@ -44,4 +47,3 @@ def run_single_step(
     }
     (out / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
     return {**result, "latency_seconds": latency, "output_dir": str(out)}
-
