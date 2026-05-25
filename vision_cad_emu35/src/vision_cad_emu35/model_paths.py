@@ -6,13 +6,19 @@ from typing import Any
 
 
 DEFAULT_MODEL_ROOT = "/root/autodl-tmp/data"
-DEFAULT_MAIN_REPO_ID = "BAAI/Emu3.5"
-DEFAULT_VISION_TOKENIZER_REPO_ID = "BAAI/Emu3.5-VisionTokenizer"
+DEFAULT_MAIN_LOCAL_ID = "BAAI/Emu3.5"
+DEFAULT_VISION_TOKENIZER_LOCAL_ID = "BAAI/Emu3.5-VisionTokenizer"
+DEFAULT_MAIN_MODELSCOPE_ID = "BAAI/Emu3.5"
+DEFAULT_VISION_TOKENIZER_MODELSCOPE_ID = "BAAI/Emu3.5-VisionTokenizer"
+DEFAULT_MAIN_HF_REPO_ID = "BAAI/Emu3.5"
+DEFAULT_VISION_TOKENIZER_HF_REPO_ID = "BAAI/Emu3.5-VisionTokenizer"
+DEFAULT_MAIN_REPO_ID = DEFAULT_MAIN_LOCAL_ID
+DEFAULT_VISION_TOKENIZER_REPO_ID = DEFAULT_VISION_TOKENIZER_LOCAL_ID
 DOWNLOAD_COMMAND = "python scripts/download_models.py"
 
 
 def repo_id_to_local_path(model_root: str | Path, repo_id: str) -> Path:
-    """Map a Hugging Face repo id to the local directory layout under model_root."""
+    """Map a stable local model id to the local directory layout under model_root."""
     return Path(local_repo_path_string(model_root, repo_id)).expanduser()
 
 

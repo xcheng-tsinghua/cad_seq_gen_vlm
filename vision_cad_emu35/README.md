@@ -51,17 +51,18 @@ Official references:
 cd vision_cad_emu35
 python -m venv .venv
 . .venv/bin/activate
-pip install -U huggingface_hub
+pip install -U modelscope
 pip install -e ".[dev,eval]"
 ```
 
-Install the official Emu3.5 runtime dependencies after the weights are local. The runtime configs default to local paths under `/root/autodl-tmp/data` and `local_files_only: true`, so training and inference will not silently download from Hugging Face.
+Install the official Emu3.5 runtime dependencies after the weights are local. The runtime configs default to local paths under `/root/autodl-tmp/data` and `local_files_only: true`, so training and inference will not silently download from online repos.
 
-## Download Models Without GPU
+## Download Models from ModelScope Without GPU
 
-The downloader is CPU-only: it does not import `torch`, does not touch CUDA, and does not load the model.
+This is the recommended method for mainland China. The downloader only downloads files: it does not import `torch`, does not touch CUDA, does not load the model, and does not require a GPU.
 
 ```bash
+pip install -U modelscope
 python scripts/download_models.py
 ```
 
@@ -76,22 +77,43 @@ The default command is equivalent to:
 
 ```bash
 python scripts/download_models.py \
+  --backend modelscope \
   --output-dir /root/autodl-tmp/data/ \
-  --main-repo-id BAAI/Emu3.5 \
-  --vision-tokenizer-repo-id BAAI/Emu3.5-VisionTokenizer \
+  --main-modelscope-id BAAI/Emu3.5 \
+  --vision-tokenizer-modelscope-id BAAI/Emu3.5-VisionTokenizer \
   --revision main \
   --resume
 ```
 
-For gated/private access, use one of:
+ModelScope with custom ids:
 
 ```bash
-huggingface-cli login
-HF_TOKEN=... python scripts/download_models.py
-python scripts/download_models.py --hf-token ...
+python scripts/download_models.py \
+  --backend modelscope \
+  --main-modelscope-id BAAI/Emu3.5 \
+  --vision-tokenizer-modelscope-id BAAI/Emu3.5-VisionTokenizer
 ```
 
-If you use a Hugging Face mirror, set `HF_ENDPOINT` before running the downloader. The script writes `download_record.json` in each local repo directory and prints this snippet when done:
+If those ModelScope ids are not available in your environment, override them with the actual ModelScope model ids:
+
+```bash
+python scripts/download_models.py \
+  --backend modelscope \
+  --main-modelscope-id <actual_modelscope_model_id> \
+  --vision-tokenizer-modelscope-id <actual_modelscope_model_id>
+```
+
+Hugging Face is kept as an optional fallback only:
+
+```bash
+pip install -U huggingface_hub
+huggingface-cli login
+python scripts/download_models.py \
+  --backend huggingface \
+  --hf-token $HF_TOKEN
+```
+
+If you use a Hugging Face mirror, set `HF_ENDPOINT` before running with `--backend huggingface`. The script writes `download_record.json` in each local repo directory and prints this snippet when done:
 
 ```yaml
 model:
@@ -102,6 +124,8 @@ model:
   emu_repo_path: null
   local_files_only: true
 ```
+
+After download, training, inference, API, and the web demo load from these local paths automatically.
 
 The official Emu3.5 Python utilities still need to be installed or importable. If they are not in the Python environment, set `model.emu_repo_path` to a local checkout of the official repo.
 
