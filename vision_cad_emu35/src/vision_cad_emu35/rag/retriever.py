@@ -14,7 +14,7 @@ from vision_cad_emu35.utils.jsonl import read_jsonl
 
 class RagRetriever:
     def __init__(self, kb_dir: str | Path, config: RagConfig | dict[str, Any] | None = None) -> None:
-        self.kb_dir = Path(kb_dir)
+        self.kb_dir = Path(kb_dir).expanduser()
         self.config = config if isinstance(config, RagConfig) else RagConfig(**(config or {}))
         self.embedder = create_image_embedder(self.config.embedding_backend)
         self.items: list[KBItem] = []
@@ -39,6 +39,15 @@ class RagRetriever:
 
     def item_count(self) -> int:
         return 0 if self.is_empty() else len(self.items)
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "kb_dir": str(self.kb_dir),
+            "kb_loaded": True,
+            "kb_empty": self.is_empty(),
+            "kb_item_count": self.item_count(),
+            "embedding_shape": list(self.store.shape),
+        }
 
     def retrieve(
         self,
@@ -68,4 +77,3 @@ class RagRetriever:
             row["metadata"]["kb_dir"] = str(self.kb_dir)
             results.append(row)
         return results
-

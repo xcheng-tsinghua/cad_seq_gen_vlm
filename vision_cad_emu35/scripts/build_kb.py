@@ -26,6 +26,7 @@ def main() -> None:
     config = load_config(args.config)
     dataset_root = args.dataset_root or config.data.dataset_root
     kb_dir = args.kb_dir or config.rag.kb_dir
+    config.rag.kb_dir = kb_dir
     report = build_kb_from_dataset(
         dataset_root=dataset_root,
         kb_dir=kb_dir,
@@ -33,9 +34,9 @@ def main() -> None:
         manifest_path=args.manifest,
         validate_images=not args.no_validate_images,
     )
+    print(f"Using KB directory: {kb_dir}")
     print(json.dumps(report, indent=2, default=str))
 
 
 if __name__ == "__main__":
     main()
-

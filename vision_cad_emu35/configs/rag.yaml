@@ -14,7 +14,7 @@ data:
   manifest_dir: "data/manifests"
 
 rag:
-  kb_dir: "outputs/rag_kb"
+  kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
   embedding_backend: "simple"
   vector_backend: "numpy"
   top_k: 3
@@ -42,4 +42,3 @@ web:
   title: "Vision CAD Emu3.5 RAG Demo"
   allow_upload_kb: false
   show_retrieved_examples: true
-

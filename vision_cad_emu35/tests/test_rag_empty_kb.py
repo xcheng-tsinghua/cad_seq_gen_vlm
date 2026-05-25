@@ -11,8 +11,14 @@ from vision_cad_emu35.rag.retriever import RagRetriever
 def test_missing_kb_dir_is_empty(tmp_path):
     retriever = RagRetriever(tmp_path / "missing", RagConfig())
     assert retriever.is_empty()
+    assert retriever.status()["kb_loaded"] is True
+    assert retriever.status()["kb_empty"] is True
     image = Image.new("RGB", (16, 16), "black")
     assert retriever.retrieve(image, image) == []
+
+
+def test_default_kb_dir_is_absolute_autodl_path():
+    assert RagConfig().kb_dir == "/root/autodl-tmp/data/outputs/rag_kb"
 
 
 def test_empty_kb_items_jsonl_is_empty(tmp_path):
@@ -30,4 +36,3 @@ def test_prompt_builder_zero_shot_prompt():
     assert prompt.zero_shot
     assert "No retrieved examples are available" in prompt.prompt_text
     assert len(prompt.images) == 2
-

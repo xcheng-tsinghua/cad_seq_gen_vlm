@@ -60,9 +60,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             "status": "ok",
             "model_loaded": app.state.adapter is not None,
             "model_error": app.state.model_error,
-            "kb_loaded": True,
-            "kb_empty": retriever.is_empty(),
-            "kb_item_count": retriever.item_count(),
+            **retriever.status(),
             "version": __version__,
             "gpu": get_gpu_info(),
         }
@@ -82,6 +80,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         prev_image = await _upload_to_image(prev_depth_map)
         examples = app.state.retriever.retrieve(final_image, prev_image, top_k=top_k or config.rag.top_k)
         return {
+            "kb_dir": str(app.state.retriever.kb_dir),
             "retrieved_examples": examples,
             "zero_shot": len(examples) == 0,
             "message": "No retrieved examples available; running zero-shot mode." if not examples else None,
@@ -116,6 +115,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             "operation_type": result.get("operation_type"),
             "image_base64": image_to_base64(result["image"]) if result.get("image") is not None else None,
             "retrieved_examples": prompt.retrieved_examples,
+            "kb_dir": str(app.state.retriever.kb_dir),
             "zero_shot": len(examples) == 0,
             "metadata": {**result.get("metadata", {}), "image_roles": prompt.image_roles},
             "latency_seconds": time.perf_counter() - start,
@@ -130,9 +130,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         app.state.retriever = RagRetriever(config.rag.kb_dir, config.rag)
         retriever: RagRetriever = app.state.retriever
         return {
-            "kb_loaded": True,
-            "kb_empty": retriever.is_empty(),
-            "kb_item_count": retriever.item_count(),
+            **retriever.status(),
         }
 
     async def _upload_to_image(upload: UploadFile) -> Image.Image:

@@ -17,17 +17,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Launch the frozen Emu3.5 RAG FastAPI service.")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "rag.yaml"))
     parser.add_argument("--model-root", default=None)
+    parser.add_argument("--kb-dir", default=None)
     args = parser.parse_args()
 
     setup_logging()
     config = load_config(args.config)
     apply_model_root_override(config.model, args.model_root)
+    if args.kb_dir:
+        config.rag.kb_dir = args.kb_dir
     app = create_app(config)
     import uvicorn
 
+    print(f"Using KB directory: {config.rag.kb_dir}")
     uvicorn.run(app, host=config.api.host, port=config.api.port)
 
 
 if __name__ == "__main__":
     main()
-

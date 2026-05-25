@@ -23,11 +23,14 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--model-root", default=None)
+    parser.add_argument("--kb-dir", default=None)
     args = parser.parse_args()
 
     setup_logging()
     config = load_config(args.config)
     apply_model_root_override(config.model, args.model_root)
+    if args.kb_dir:
+        config.rag.kb_dir = args.kb_dir
     retriever = RagRetriever(config.rag.kb_dir, config.rag)
     adapter = load_frozen_adapter(config)
     out = Path(args.output_dir)
@@ -51,4 +54,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

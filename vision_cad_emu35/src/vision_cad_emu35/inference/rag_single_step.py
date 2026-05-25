@@ -67,6 +67,7 @@ def run_rag_single_step(
         "latency_seconds": latency,
         "zero_shot": zero_shot,
         "warning": "No retrieved examples available; running zero-shot mode." if zero_shot else None,
+        "kb_dir": str(retriever.kb_dir),
         "num_retrieved": len(retrieved),
         "image_roles": prompt.image_roles,
     }

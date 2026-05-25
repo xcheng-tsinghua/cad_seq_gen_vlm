@@ -9,16 +9,19 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from vision_cad_emu35.config import load_config
 from vision_cad_emu35.rag.retriever import RagRetriever
 from vision_cad_emu35.utils.jsonl import read_jsonl
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect a RAG knowledge base.")
-    parser.add_argument("--kb-dir", default="outputs/rag_kb")
+    parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "rag.yaml"))
+    parser.add_argument("--kb-dir", default=None)
     args = parser.parse_args()
 
-    kb_dir = Path(args.kb_dir)
+    config = load_config(args.config)
+    kb_dir = Path(args.kb_dir or config.rag.kb_dir)
     items_path = kb_dir / "kb_items.jsonl"
     items = list(read_jsonl(items_path)) if items_path.exists() else []
     retriever = RagRetriever(kb_dir)
@@ -37,4 +40,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

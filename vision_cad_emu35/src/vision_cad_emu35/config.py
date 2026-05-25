@@ -52,7 +52,7 @@ class DataConfig:
 
 @dataclass
 class RagConfig:
-    kb_dir: str = "outputs/rag_kb"
+    kb_dir: str = "/root/autodl-tmp/data/outputs/rag_kb"
     embedding_backend: str = "simple"
     vector_backend: str = "numpy"
     top_k: int = 3

@@ -151,7 +151,9 @@
         <div class="panel result">
           <div class="metric"><b>Operation type</b><span id="op">-</span></div>
           <div class="metric"><b>Latency</b><span id="latency">-</span></div>
+          <div class="metric"><b>Mode</b><span id="mode">-</span></div>
           <div class="metric"><b>KB items</b><span id="kbCount">-</span></div>
+          <div class="metric"><b>KB directory</b><span id="kbDir">-</span></div>
           <div class="metric"><b>Model</b><span id="modelState">-</span></div>
         </div>
         <div class="examples" id="examples"></div>
@@ -201,6 +203,8 @@
         ? 'KB empty, zero-shot ready'
         : `KB ready: ${j.kb_item_count} items`;
       document.getElementById('kbCount').textContent = String(j.kb_item_count);
+      document.getElementById('kbDir').textContent = j.kb_dir || '-';
+      document.getElementById('mode').textContent = j.kb_empty ? 'zero-shot' : 'RAG';
       document.getElementById('modelState').textContent = j.model_loaded ? 'loaded' : 'not loaded';
       if (j.kb_empty) showNotice('Knowledge base is empty. The system is running in zero-shot mode.');
     }).catch(() => {
@@ -218,6 +222,8 @@
         if (!response.ok) throw new Error(json.detail || 'request failed');
         document.getElementById('op').textContent = json.operation_type || '-';
         document.getElementById('latency').textContent = `${json.latency_seconds.toFixed(2)} s`;
+        document.getElementById('mode').textContent = json.zero_shot ? 'zero-shot' : 'RAG';
+        if (json.kb_dir) document.getElementById('kbDir').textContent = json.kb_dir;
         if (json.image_base64) {
           document.getElementById('outPreview').src = `data:image/png;base64,${json.image_base64}`;
         }

@@ -81,6 +81,13 @@ data:
   dataset_root: "/path/to/your/dataset"
 ```
 
+The default knowledge base path is also defined in `configs/rag.yaml`:
+
+```yaml
+rag:
+  kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
+```
+
 2. Prepare manifest:
 
 ```bash
@@ -95,15 +102,14 @@ python scripts/prepare_manifest.py \
 ```bash
 python scripts/build_kb.py \
   --config configs/rag.yaml \
-  --dataset-root /path/to/your/dataset \
-  --kb-dir outputs/rag_kb
+  --dataset-root /path/to/your/dataset
 ```
 
 4. Inspect KB:
 
 ```bash
 python scripts/inspect_kb.py \
-  --kb-dir outputs/rag_kb
+  --config configs/rag.yaml
 ```
 
 5. Run single inference:
@@ -131,11 +137,41 @@ http://SERVER_IP:8000
 
 The server binds to `0.0.0.0` by default so other computers on the network can access it.
 
+## Changing the KB Path
+
+Default KB path:
+
+```text
+/root/autodl-tmp/data/outputs/rag_kb
+```
+
+Option A: edit `configs/rag.yaml`:
+
+```yaml
+rag:
+  kb_dir: "/new/kb/path"
+```
+
+Option B: override from CLI:
+
+```bash
+python scripts/build_kb.py \
+  --config configs/rag.yaml \
+  --dataset-root /path/to/dataset \
+  --kb-dir /new/kb/path
+
+python scripts/launch_web_demo.py \
+  --config configs/rag.yaml \
+  --kb-dir /new/kb/path
+```
+
+The same `--kb-dir` override is supported by `inspect_kb.py`, `infer_rag_single.py`, `infer_rag_batch.py`, `launch_api.py`, and `launch_web_demo.py`.
+
 ## Empty KB Mode
 
 These cases are supported:
 
-- `outputs/rag_kb` does not exist.
+- `/root/autodl-tmp/data/outputs/rag_kb` does not exist.
 - `kb_items.jsonl` is empty.
 - `embeddings.npy` is missing.
 - `embeddings.npy` has shape `(0, dim)`.
@@ -161,6 +197,8 @@ Endpoints:
 - `POST /retrieve`
 - `POST /generate`
 - `POST /reload_kb`
+
+`GET /health` reports `kb_dir`, `kb_loaded`, `kb_empty`, and `kb_item_count`.
 
 `POST /generate` accepts multipart fields:
 
