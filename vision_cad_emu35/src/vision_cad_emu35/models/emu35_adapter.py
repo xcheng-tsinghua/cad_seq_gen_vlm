@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
+import warnings
 from dataclasses import asdict
 from inspect import Parameter, signature
 from pathlib import Path
@@ -78,6 +79,7 @@ class Emu35Adapter:
         model_device = self.config.device_map or self.extra_config.get("hf_device") or device
         vq_device = self.config.vq_device or device
         build_kwargs = dict(self.extra_config.get("diffusion_decoder_kwargs") or {})
+        build_kwargs = self._sanitize_optional_acceleration_kwargs(build_kwargs)
         if self.config.local_files_only:
             build_kwargs = self._maybe_add_supported_kwarg(official["build_emu3p5"], build_kwargs, "local_files_only", True)
 
@@ -269,6 +271,40 @@ class Emu35Adapter:
             updated.setdefault(name, value)
             return updated
         return kwargs
+
+    def _sanitize_optional_acceleration_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        updated = dict(kwargs)
+        optional_modules = {
+            "flash_attn": ("flash_attn", "use_flash_attn", "flash_attention", "attn_implementation"),
+            "xformers": ("xformers", "use_xformers"),
+            "bitsandbytes": ("bitsandbytes", "load_in_4bit", "load_in_8bit", "quantization_config"),
+            "vllm": ("vllm", "use_vllm"),
+        }
+        for module_name, keys in optional_modules.items():
+            if not any(key in updated for key in keys):
+                continue
+            if self._module_available(module_name):
+                continue
+            for key in keys:
+                if key in updated:
+                    if key == "attn_implementation":
+                        updated[key] = "eager"
+                    elif key == "quantization_config":
+                        updated.pop(key, None)
+                    else:
+                        updated[key] = False
+            warnings.warn(
+                f"Optional acceleration library {module_name!r} is not installed; falling back to standard PyTorch inference.",
+                RuntimeWarning,
+            )
+        return updated
+
+    def _module_available(self, module_name: str) -> bool:
+        try:
+            __import__(module_name)
+            return True
+        except Exception:
+            return False
 
     def _require_loaded(self) -> None:
         if self.model is None or self.tokenizer is None or self.vq_model is None:

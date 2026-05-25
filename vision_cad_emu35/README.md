@@ -21,6 +21,36 @@ pip install -e ".[dev]"
 
 Install the official Emu3.5 runtime code separately. If its utilities are not importable, set `model.emu_repo_path` in `configs/rag.yaml` to a local checkout of the official Emu3.5 repo.
 
+## NVIDIA RTX PRO 6000 Blackwell Setup
+
+Blackwell GPUs require a recent NVIDIA driver and a PyTorch build with CUDA 12.8 or newer. Do not let `pip install -e .` choose a generic PyTorch wheel; `pyproject.toml` intentionally does not depend on `torch`.
+
+Recommended setup:
+
+```bash
+pip uninstall -y torch torchvision torchaudio xformers flash-attn bitsandbytes
+pip install -r requirements-blackwell-cu128.txt
+pip install -e . --no-deps
+python scripts/check_gpu_env.py
+```
+
+`scripts/check_gpu_env.py` prints the PyTorch version, CUDA version, GPU name, compute capability, bf16 support, CUDA tensor allocation status, and optional acceleration import status.
+
+Optional acceleration libraries are not required:
+
+- `flash-attn`
+- `xformers`
+- `bitsandbytes`
+- `vllm`
+
+If they are absent, the project falls back to standard PyTorch inference with a warning.
+
+For CPU-only model downloading or RAG KB building:
+
+```bash
+pip install -r requirements-cpu.txt
+```
+
 ## Download Models from ModelScope Without GPU
 
 Recommended for mainland China:
