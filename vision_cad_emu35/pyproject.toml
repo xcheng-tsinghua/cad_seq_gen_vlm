@@ -18,7 +18,7 @@ dependencies = [
   "modelscope>=1.17",
   "huggingface_hub>=0.23",
   "pydantic>=2.0",
-  "transformers>=4.40",
+  "transformers==4.48.3",
 ]
 
 [project.optional-dependencies]
