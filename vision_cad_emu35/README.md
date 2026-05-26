@@ -121,7 +121,6 @@ model:
   vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
   emu_repo_path: "third_party/Emu3.5"
   local_files_only: true
-  attn_implementation: "eager"
 ```
 
 If `model.emu_repo_path` is absolute, the runtime uses it directly. If it is relative, the runtime resolves it from the project root, so `third_party/Emu3.5` works no matter where you launch the scripts from.
@@ -325,43 +324,6 @@ Endpoints:
 - `prev_depth_map`
 - `top_k`
 - `prompt_extra`
-
-## Troubleshooting
-
-### Emu3ForCausalLM Does Not Support Flash Attention 2 Yet
-
-Problem:
-
-```text
-ValueError: Emu3ForCausalLM does not support Flash Attention 2 yet.
-```
-
-Solution:
-
-```yaml
-model:
-  attn_implementation: "eager"
-```
-
-This is the default in `configs/rag.yaml`. Supported values are `eager`, `sdpa`, `auto`, and `flash_attention_2`, but `auto` is resolved conservatively to `eager` for Emu3.5 so it does not accidentally select Flash Attention 2. If Flash Attention 2 is requested and Emu3.5 rejects it, the adapter retries once with eager attention.
-
-Optional acceleration libraries are not required for the first working version:
-
-- `flash-attn`
-- `xformers`
-- `bitsandbytes`
-- `vllm`
-
-### Invalid OMP_NUM_THREADS
-
-If logs show:
-
-```text
-libgomp: Invalid value for environment variable OMP_NUM_THREADS
-auto
-```
-
-the runtime scripts normalize invalid, missing, `0`, or `auto` values for `OMP_NUM_THREADS` and `MKL_NUM_THREADS` to `8` before loading torch or Emu3.5.
 
 ## RAG Components
 

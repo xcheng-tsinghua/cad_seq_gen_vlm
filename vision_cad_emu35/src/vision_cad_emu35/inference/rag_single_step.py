@@ -11,11 +11,9 @@ from vision_cad_emu35.models.emu35_adapter import Emu35Adapter
 from vision_cad_emu35.rag.prompt_builder import RagPromptBuilder
 from vision_cad_emu35.rag.retriever import RagRetriever
 from vision_cad_emu35.utils.image_io import load_image_rgb, save_image
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
 
 
 def load_frozen_adapter(config: AppConfig) -> Emu35Adapter:
-    normalize_thread_env()
     ensure_default_local_model_paths(config.model)
     validate_local_model_paths(config.model)
     adapter = Emu35Adapter(config.model)

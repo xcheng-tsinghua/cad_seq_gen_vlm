@@ -3,15 +3,14 @@ from __future__ import annotations
 import re
 import sys
 import warnings
-from contextlib import contextmanager
 from dataclasses import asdict
 from inspect import Parameter, signature
 from types import SimpleNamespace
-from typing import Any, Iterator
+from typing import Any
 
 from PIL import Image
 
-from vision_cad_emu35.config import ALLOWED_ATTN_IMPLEMENTATIONS, GenerationConfig, ModelConfig, resolve_project_path
+from vision_cad_emu35.config import GenerationConfig, ModelConfig, resolve_project_path
 from vision_cad_emu35.model_paths import DOWNLOAD_COMMAND, ensure_default_local_model_paths, validate_local_model_paths
 from vision_cad_emu35.utils.gpu import get_gpu_info
 from vision_cad_emu35.utils.image_io import resize_pad_image
@@ -78,50 +77,28 @@ class Emu35Adapter:
         device = self.config.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
         model_device = self.config.device_map or self.extra_config.get("hf_device") or device
         vq_device = self.config.vq_device or device
-        base_build_kwargs = dict(self.extra_config.get("diffusion_decoder_kwargs") or {})
-        attn_impl = self._effective_attn_implementation()
+        build_kwargs = dict(self.extra_config.get("diffusion_decoder_kwargs") or {})
+        build_kwargs = self._sanitize_optional_acceleration_kwargs(build_kwargs)
+        if self.config.local_files_only:
+            build_kwargs = self._maybe_add_supported_kwarg(official["build_emu3p5"], build_kwargs, "local_files_only", True)
 
         try:
-            self.model, self.tokenizer, self.vq_model = self._build_emu3p5_with_attention(
-                attn_impl,
-                base_build_kwargs,
+            self.model, self.tokenizer, self.vq_model = official["build_emu3p5"](
                 model_path,
                 tokenizer_path,
                 vq_path,
-                model_device,
-                vq_device,
+                vq_type=self.config.vq_type,
+                model_device=model_device,
+                vq_device=vq_device,
+                **build_kwargs,
             )
         except Exception as exc:
-            if self._is_flash_attention_2_error(exc):
-                message = "Flash Attention 2 is not supported by Emu3ForCausalLM. Falling back to eager attention."
-                print(f"WARNING: {message}", file=sys.stderr)
-                warnings.warn(message, RuntimeWarning)
-                try:
-                    self.model, self.tokenizer, self.vq_model = self._build_emu3p5_with_attention(
-                        "eager",
-                        base_build_kwargs,
-                        model_path,
-                        tokenizer_path,
-                        vq_path,
-                        model_device,
-                        vq_device,
-                    )
-                    attn_impl = "eager"
-                except Exception as retry_exc:
-                    raise RuntimeError(
-                        "Failed to load Emu3.5 after retrying with attn_implementation='eager'. "
-                        f"Original {type(exc).__name__}: {exc}. "
-                        f"Retry {type(retry_exc).__name__}: {retry_exc}. "
-                        f"If local weights are missing, run: {DOWNLOAD_COMMAND}."
-                    ) from retry_exc
-            else:
+            if self.config.local_files_only:
                 raise RuntimeError(
-                    "Failed to load Emu3.5. This may be an attention implementation issue, not a model-path issue. "
-                    f"Configured attn_implementation={attn_impl!r}. "
-                    f"Original {type(exc).__name__}: {exc}. "
-                    f"If local weights are missing, run: {DOWNLOAD_COMMAND}."
+                    "Failed to load Emu3.5 from local files. Confirm the local paths in the config "
+                    f"or run: {DOWNLOAD_COMMAND}. Original error: {exc}"
                 ) from exc
-        self.extra_config["effective_attn_implementation"] = attn_impl
+            raise
         self.device = getattr(self.model, "device", torch.device(device))
         if hasattr(self.model, "eval"):
             self.model.eval()
@@ -269,94 +246,6 @@ class Emu35Adapter:
             if repo not in sys.path:
                 sys.path.insert(0, repo)
 
-    def _build_emu3p5_with_attention(
-        self,
-        attn_implementation: str,
-        base_build_kwargs: dict[str, Any],
-        model_path: str,
-        tokenizer_path: str,
-        vq_path: str,
-        model_device: str,
-        vq_device: str,
-    ) -> tuple[Any, Any, Any]:
-        build_fn = self.official["build_emu3p5"]
-        build_kwargs = dict(base_build_kwargs)
-        build_kwargs["attn_implementation"] = attn_implementation
-        build_kwargs = self._sanitize_optional_acceleration_kwargs(build_kwargs)
-        if self.config.local_files_only:
-            build_kwargs["local_files_only"] = True
-        build_kwargs = self._filter_supported_kwargs(build_fn, build_kwargs)
-
-        with self._force_from_pretrained_attention(attn_implementation):
-            return build_fn(
-                model_path,
-                tokenizer_path,
-                vq_path,
-                vq_type=self.config.vq_type,
-                model_device=model_device,
-                vq_device=vq_device,
-                **build_kwargs,
-            )
-
-    def _effective_attn_implementation(self) -> str:
-        value = str(getattr(self.config, "attn_implementation", "eager") or "eager").strip()
-        if value not in ALLOWED_ATTN_IMPLEMENTATIONS:
-            allowed = ", ".join(ALLOWED_ATTN_IMPLEMENTATIONS)
-            raise ValueError(f"Unsupported attn_implementation={value!r}. Allowed values: {allowed}.")
-        if value == "auto":
-            return "eager"
-        return value
-
-    def _is_flash_attention_2_error(self, exc: Exception) -> bool:
-        text = f"{type(exc).__name__}: {exc}".lower()
-        return "flash attention 2" in text or "flash_attention_2" in text
-
-    @contextmanager
-    def _force_from_pretrained_attention(self, attn_implementation: str) -> Iterator[None]:
-        patches: list[tuple[Any, str, Any]] = []
-
-        def patch_class(target: Any) -> None:
-            if not isinstance(target, type):
-                return
-            original_attr = target.__dict__.get("from_pretrained")
-            if original_attr is None:
-                return
-            if any(existing[0] is target for existing in patches):
-                return
-            if isinstance(original_attr, classmethod):
-                original_func = original_attr.__func__
-            else:
-                bound = getattr(target, "from_pretrained")
-                original_func = getattr(bound, "__func__", bound)
-
-            def patched(cls: Any, *args: Any, **kwargs: Any) -> Any:
-                kwargs["attn_implementation"] = attn_implementation
-                return original_func(cls, *args, **kwargs)
-
-            setattr(target, "from_pretrained", classmethod(patched))
-            patches.append((target, "from_pretrained", original_attr))
-
-        try:
-            from transformers import AutoModelForCausalLM
-            from transformers.modeling_utils import PreTrainedModel
-
-            patch_class(PreTrainedModel)
-            patch_class(AutoModelForCausalLM)
-        except Exception:
-            pass
-
-        build_fn = self.official.get("build_emu3p5")
-        for value in getattr(build_fn, "__globals__", {}).values():
-            name = getattr(value, "__name__", "")
-            if isinstance(value, type) and ("Emu3" in name or name.endswith("ForCausalLM")):
-                patch_class(value)
-
-        try:
-            yield
-        finally:
-            for target, name, original_attr in reversed(patches):
-                setattr(target, name, original_attr)
-
     def _import_official_utilities(self) -> dict[str, Any] | None:
         try:
             from src.utils.generation_utils import generate, multimodal_decode
@@ -383,16 +272,6 @@ class Emu35Adapter:
             return updated
         return kwargs
 
-    def _filter_supported_kwargs(self, fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-        try:
-            sig = signature(fn)
-        except (TypeError, ValueError):
-            return kwargs
-        supports_var_kwargs = any(param.kind == Parameter.VAR_KEYWORD for param in sig.parameters.values())
-        if supports_var_kwargs:
-            return kwargs
-        return {key: value for key, value in kwargs.items() if key in sig.parameters}
-
     def _sanitize_optional_acceleration_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         updated = dict(kwargs)
         optional_modules = {
@@ -404,11 +283,6 @@ class Emu35Adapter:
         for module_name, keys in optional_modules.items():
             if not any(key in updated for key in keys):
                 continue
-            if module_name == "flash_attn":
-                flash_requested = any(key in updated for key in ("use_flash_attn", "flash_attention"))
-                flash_requested = flash_requested or updated.get("attn_implementation") == "flash_attention_2"
-                if not flash_requested:
-                    continue
             if self._module_available(module_name):
                 continue
             for key in keys:

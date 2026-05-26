@@ -7,10 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
-
-normalize_thread_env()
-
+from vision_cad_emu35.api.server import create_app
 from vision_cad_emu35.config import load_config
 from vision_cad_emu35.model_paths import apply_model_root_override
 from vision_cad_emu35.utils.logging import setup_logging
@@ -28,8 +25,6 @@ def main() -> None:
     apply_model_root_override(config.model, args.model_root)
     if args.kb_dir:
         config.rag.kb_dir = args.kb_dir
-    from vision_cad_emu35.api.server import create_app
-
     app = create_app(config)
     import uvicorn
 
