@@ -43,13 +43,13 @@ nohup 末尾添加该命令可以指定log文件
 git branch
 
 # 2. 基于当前分支创建新分支
-git branch emu35_rag_cuda2
+git branch emu35_rag_cuda3
 
 # 3. 切换到新分支
-git checkout emu35_rag_cuda2
+git checkout emu35_rag_cuda3
 
 # 4. 将本地分支关联到远程分支，并推送新分支到远程仓库
-git push -u origin emu35_rag_cuda2
+git push -u origin emu35_rag_cuda3
 
 
 
