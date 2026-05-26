@@ -19,6 +19,8 @@ pip install -U modelscope
 pip install -e ".[dev]"
 ```
 
+Use either conda or `.venv`, but not both at the same time. Before debugging runtime issues, confirm `which python` or `sys.executable` points at the environment where torch, transformers, and this project are installed.
+
 ## NVIDIA RTX PRO 6000 Blackwell Setup
 
 Blackwell GPUs require a recent NVIDIA driver and a PyTorch build with CUDA 12.8 or newer. Do not let `pip install -e .` choose a generic PyTorch wheel; `pyproject.toml` intentionally does not depend on `torch`.
@@ -122,6 +124,7 @@ model:
   emu_repo_path: "third_party/Emu3.5"
   local_files_only: true
   attn_implementation: "eager"
+  clear_transformers_remote_code_cache: true
 ```
 
 If `model.emu_repo_path` is absolute, the runtime uses it directly. If it is relative, the runtime resolves it from the project root, so `third_party/Emu3.5` works no matter where you launch the scripts from.
@@ -140,6 +143,12 @@ Check that the adapter can import the official runtime utilities:
 
 ```bash
 python scripts/check_emu35_imports.py --config configs/rag.yaml
+```
+
+Check that the custom Emu3.5 tokenizer is compatible with the installed Transformers version:
+
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
 ```
 
 ## Dataset Layout
@@ -193,7 +202,13 @@ model:
 python scripts/check_emu35_imports.py --config configs/rag.yaml
 ```
 
-5. Edit dataset path in `configs/rag.yaml`:
+5. Check Emu3.5 tokenizer compatibility:
+
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
+
+6. Edit dataset path in `configs/rag.yaml`:
 
 ```yaml
 data:
@@ -207,7 +222,7 @@ rag:
   kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
 ```
 
-6. Prepare manifest:
+7. Prepare manifest:
 
 ```bash
 python scripts/prepare_manifest.py \
@@ -216,7 +231,7 @@ python scripts/prepare_manifest.py \
   --add-stop-samples
 ```
 
-7. Build RAG knowledge base:
+8. Build RAG knowledge base:
 
 ```bash
 python scripts/build_kb.py \
@@ -224,14 +239,14 @@ python scripts/build_kb.py \
   --dataset-root /path/to/your/dataset
 ```
 
-8. Inspect KB:
+9. Inspect KB:
 
 ```bash
 python scripts/inspect_kb.py \
   --config configs/rag.yaml
 ```
 
-9. Run single inference:
+10. Run single inference:
 
 ```bash
 python scripts/infer_rag_single.py \
@@ -241,7 +256,7 @@ python scripts/infer_rag_single.py \
   --output-dir /root/autodl-tmp/data/outputs/rag_single
 ```
 
-10. Launch web demo:
+11. Launch web demo:
 
 ```bash
 python scripts/launch_web_demo.py \
@@ -362,6 +377,42 @@ auto
 ```
 
 the runtime scripts normalize invalid, missing, `0`, or `auto` values for `OMP_NUM_THREADS` and `MKL_NUM_THREADS` to `8` before loading torch or Emu3.5.
+
+### Emu3Tokenizer special_tokens_set Error
+
+Problem:
+
+```text
+AttributeError: Emu3Tokenizer has no attribute special_tokens_set
+```
+
+Cause:
+
+The custom Emu3Tokenizer code is incompatible with the current Transformers initialization path, or stale Hugging Face remote-code cache is being used from:
+
+```text
+~/.cache/huggingface/modules/transformers_modules/
+```
+
+Solution:
+
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
+
+The checker applies the local tokenizer compatibility patch, clears only the Emu3.5-specific Transformers remote-code cache when `model.clear_transformers_remote_code_cache: true`, loads the tokenizer with `local_files_only=True`, and runs a short encode/decode test.
+
+Then retry:
+
+```bash
+python scripts/infer_rag_single.py \
+  --config configs/rag.yaml \
+  --final-snapshot examples/final_snapshot.png \
+  --prev-depth-map examples/prev_depth_map.png \
+  --output-dir outputs/rag_single
+```
+
+If stale cache is suspected, clear only the Emu3.5 remote-code cache under `~/.cache/huggingface/modules/transformers_modules/`. Do not delete model weights under `/root/autodl-tmp/data/BAAI/Emu3.5`.
 
 ## RAG Components
 

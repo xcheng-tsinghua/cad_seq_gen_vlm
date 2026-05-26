@@ -13,8 +13,10 @@ from PIL import Image
 
 from vision_cad_emu35.config import ALLOWED_ATTN_IMPLEMENTATIONS, GenerationConfig, ModelConfig, resolve_project_path
 from vision_cad_emu35.model_paths import DOWNLOAD_COMMAND, ensure_default_local_model_paths, validate_local_model_paths
+from vision_cad_emu35.models.emu35_compat import apply_emu3_tokenizer_compat, is_special_tokens_set_error
 from vision_cad_emu35.utils.gpu import get_gpu_info
 from vision_cad_emu35.utils.image_io import resize_pad_image
+from vision_cad_emu35.utils.runtime_env import normalize_thread_env
 
 
 SPECIAL_TOKENS = {
@@ -51,9 +53,12 @@ class Emu35Adapter:
         self.device = None
 
     def load_model(self) -> None:
+        normalize_thread_env()
         ensure_default_local_model_paths(self.config)
         validate_local_model_paths(self.config)
         self.extra_config.update(asdict(self.config))
+        compat_report = apply_emu3_tokenizer_compat(self.config)
+        self.extra_config["tokenizer_compat"] = compat_report.to_dict()
         self._prepare_import_path()
         official = self._import_official_utilities()
         if official is None:
@@ -92,6 +97,13 @@ class Emu35Adapter:
                 vq_device,
             )
         except Exception as exc:
+            if is_special_tokens_set_error(exc):
+                raise RuntimeError(
+                    "Emu3Tokenizer failed during initialization because special_tokens_set is missing. "
+                    "This is a custom tokenizer / transformers compatibility issue. "
+                    "Run scripts/check_emu35_tokenizer.py and ensure the tokenizer compatibility patch is applied. "
+                    f"Original {type(exc).__name__}: {exc}"
+                ) from exc
             if self._is_flash_attention_2_error(exc):
                 message = "Flash Attention 2 is not supported by Emu3ForCausalLM. Falling back to eager attention."
                 print(f"WARNING: {message}", file=sys.stderr)
@@ -108,6 +120,13 @@ class Emu35Adapter:
                     )
                     attn_impl = "eager"
                 except Exception as retry_exc:
+                    if is_special_tokens_set_error(retry_exc):
+                        raise RuntimeError(
+                            "Emu3Tokenizer failed during initialization because special_tokens_set is missing. "
+                            "This is a custom tokenizer / transformers compatibility issue. "
+                            "Run scripts/check_emu35_tokenizer.py and ensure the tokenizer compatibility patch is applied. "
+                            f"Original {type(retry_exc).__name__}: {retry_exc}"
+                        ) from retry_exc
                     raise RuntimeError(
                         "Failed to load Emu3.5 after retrying with attn_implementation='eager'. "
                         f"Original {type(exc).__name__}: {exc}. "

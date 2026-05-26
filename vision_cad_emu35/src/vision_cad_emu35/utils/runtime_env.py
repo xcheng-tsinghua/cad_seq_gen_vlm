@@ -6,22 +6,26 @@ import os
 DEFAULT_THREAD_COUNT = 8
 
 
-def normalize_thread_env(default_threads: int = DEFAULT_THREAD_COUNT) -> dict[str, str]:
+def normalize_thread_env(default_threads: int = DEFAULT_THREAD_COUNT, verbose: bool = False) -> dict[str, str]:
     """Normalize OpenMP/MKL thread env vars before torch or model code is loaded."""
 
     default_value = str(default_threads if default_threads > 0 else DEFAULT_THREAD_COUNT)
-    omp_value = os.environ.get("OMP_NUM_THREADS")
-    if not _is_positive_int(omp_value):
+    original_omp = os.environ.get("OMP_NUM_THREADS")
+    if not _is_positive_int(original_omp):
         os.environ["OMP_NUM_THREADS"] = default_value
-    final_omp = os.environ["OMP_NUM_THREADS"]
 
-    mkl_value = os.environ.get("MKL_NUM_THREADS")
-    if not _is_positive_int(mkl_value):
-        os.environ["MKL_NUM_THREADS"] = final_omp
-    return {
+    original_mkl = os.environ.get("MKL_NUM_THREADS")
+    if not _is_positive_int(original_mkl):
+        os.environ["MKL_NUM_THREADS"] = default_value
+
+    normalized = {
         "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
         "MKL_NUM_THREADS": os.environ["MKL_NUM_THREADS"],
     }
+    if verbose:
+        print(f"OMP_NUM_THREADS: {original_omp!r} -> {normalized['OMP_NUM_THREADS']!r}")
+        print(f"MKL_NUM_THREADS: {original_mkl!r} -> {normalized['MKL_NUM_THREADS']!r}")
+    return normalized
 
 
 def is_positive_int_env(value: str | None) -> bool:

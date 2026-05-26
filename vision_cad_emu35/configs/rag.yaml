@@ -10,6 +10,7 @@ model:
   image_size: 512
   precision: "bf16"
   attn_implementation: "eager"
+  clear_transformers_remote_code_cache: true
 
 data:
   dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img"

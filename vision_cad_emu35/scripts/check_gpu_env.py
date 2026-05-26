@@ -3,13 +3,21 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from vision_cad_emu35.utils.runtime_env import is_positive_int_env, normalize_thread_env
 
 
 def main() -> None:
     print(f"Python version: {sys.version.split()[0]}")
     print(f"Python executable: {sys.executable}")
     print_thread_env_status()
+    normalize_thread_env(verbose=True)
+    print_package_version("transformers")
     torch = import_torch()
     if torch is None:
         warn("torch is not installed. Install the Blackwell CUDA 12.8 wheel with requirements-blackwell-cu128.txt.")
@@ -81,17 +89,17 @@ def print_thread_env_status() -> None:
     for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
         value = os.environ.get(name)
         print(f"{name}: {value if value is not None else '<unset>'}")
-        if not is_positive_integer(value):
+        if not is_positive_int_env(value):
             warn(f"{name} is not a positive integer. Runtime scripts will normalize invalid values to 8 before model load.")
 
 
-def is_positive_integer(value: str | None) -> bool:
-    if value is None:
-        return False
+def print_package_version(name: str) -> None:
     try:
-        return int(str(value).strip()) > 0
-    except (TypeError, ValueError):
-        return False
+        module = importlib.import_module(name)
+    except Exception as exc:
+        print(f"{name} import status: failed ({exc})")
+        return
+    print(f"{name} version: {getattr(module, '__version__', 'unknown')}")
 
 
 def parse_cuda_version(version: str | None) -> tuple[int, int]:

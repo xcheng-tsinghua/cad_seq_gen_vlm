@@ -132,6 +132,7 @@ def model_config_to_yaml_snippet(model_root: str | Path = DEFAULT_MODEL_ROOT) ->
             '  emu_repo_path: "third_party/Emu3.5"',
             "  local_files_only: true",
             '  attn_implementation: "eager"',
+            "  clear_transformers_remote_code_cache: true",
         ]
     )
 

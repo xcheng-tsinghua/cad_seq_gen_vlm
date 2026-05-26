@@ -24,6 +24,7 @@ class ModelConfig:
     image_size: int = 512
     precision: str = "bf16"
     attn_implementation: str = "eager"
+    clear_transformers_remote_code_cache: bool = True
     device_map: str | None = "auto"
     tokenizer_id_or_path: str | None = None
     vq_path: str | None = None
