@@ -18,6 +18,7 @@ def _bootstrap_thread_env() -> None:
             valid = False
         if not valid:
             os.environ[name] = "8"
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 _bootstrap_thread_env()

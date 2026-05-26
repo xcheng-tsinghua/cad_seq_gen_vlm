@@ -391,6 +391,12 @@ auto
 
 the runtime scripts normalize invalid, missing, `0`, or `auto` values for `OMP_NUM_THREADS` and `MKL_NUM_THREADS` to `8` before loading torch or Emu3.5.
 
+The runtime also sets this memory-safer CUDA allocator default if it is not already configured:
+
+```bash
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+```
+
 ### Emu3Tokenizer special_tokens_set Error
 
 Problem:
@@ -446,6 +452,23 @@ python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
 ```
 
 The adapter builds this object with `build_emu35_generation_cfg()` and fills safe defaults. `configs/rag.yaml` includes all configurable generation fields explicitly.
+
+### Runtime Warnings
+
+Warnings that should be fixed before treating inference as healthy:
+
+- `Emu3ForCausalLM does not support Flash Attention 2 yet`: keep `model.attn_implementation: "eager"`.
+- `Emu3Tokenizer has no attribute special_tokens_set`: run `python scripts/check_emu35_tokenizer.py --config configs/rag.yaml`.
+- `SimpleNamespace has no attribute unconditional_type`: run `python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml`.
+- `do_sample=false` with `temperature`, `top_p`, or `top_k`: keep these generic generation fields as `null` when `do_sample: false`.
+- `libgomp: Invalid value for environment variable OMP_NUM_THREADS`: let the runtime normalize env vars or export positive integers manually.
+
+Warnings that are currently non-fatal compatibility noise:
+
+- `seen_tokens` deprecation warnings from Transformers cache internals.
+- `get_max_cache` deprecation warnings from Transformers cache internals.
+
+Those cache warnings are from upstream API drift and should not block a working MVP unless they become errors in a later Transformers release.
 
 ## RAG Components
 

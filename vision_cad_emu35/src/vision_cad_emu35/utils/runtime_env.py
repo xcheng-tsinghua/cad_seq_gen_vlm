@@ -17,10 +17,12 @@ def normalize_thread_env(default_threads: int = DEFAULT_THREAD_COUNT, verbose: b
     original_mkl = os.environ.get("MKL_NUM_THREADS")
     if not _is_positive_int(original_mkl):
         os.environ["MKL_NUM_THREADS"] = default_value
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     normalized = {
         "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
         "MKL_NUM_THREADS": os.environ["MKL_NUM_THREADS"],
+        "PYTORCH_CUDA_ALLOC_CONF": os.environ["PYTORCH_CUDA_ALLOC_CONF"],
     }
     if verbose:
         print(f"OMP_NUM_THREADS: {original_omp!r} -> {normalized['OMP_NUM_THREADS']!r}")

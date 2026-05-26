@@ -527,20 +527,23 @@ def build_emu35_generation_cfg(project_generation_config: GenerationConfig | dic
     for key in tuple(sampling_params):
         if key in raw and raw[key] is not None:
             sampling_params[key] = raw[key]
-    sampling_params["max_new_tokens"] = raw.get("max_new_tokens", sampling_params["max_new_tokens"])
-    sampling_params["top_p"] = raw.get("top_p", sampling_params["top_p"])
-    sampling_params["temperature"] = raw.get("temperature", sampling_params["temperature"])
-    sampling_params["top_k"] = raw.get("top_k", sampling_params["top_k"])
-    sampling_params["do_sample"] = raw.get("do_sample", sampling_params["do_sample"])
-    sampling_params["num_beams"] = raw.get("num_beams", sampling_params["num_beams"])
-    sampling_params["repetition_penalty"] = raw.get("repetition_penalty", sampling_params["repetition_penalty"])
-    sampling_params["length_penalty"] = raw.get("length_penalty", sampling_params["length_penalty"])
-    sampling_params["use_cache"] = raw.get("use_cache", sampling_params["use_cache"])
-    sampling_params["guidance_scale"] = raw.get("guidance_scale", sampling_params["guidance_scale"])
-    sampling_params["use_differential_sampling"] = raw.get(
+    for key in (
+        "max_new_tokens",
+        "top_p",
+        "temperature",
+        "top_k",
+        "do_sample",
+        "num_beams",
+        "repetition_penalty",
+        "length_penalty",
+        "use_cache",
+        "guidance_scale",
         "use_differential_sampling",
-        sampling_params["use_differential_sampling"],
-    )
+    ):
+        _set_if_not_none(sampling_params, key, raw.get(key))
+    if not bool(sampling_params.get("do_sample")):
+        for key in ("temperature", "top_p", "top_k"):
+            sampling_params.pop(key, None)
 
     cfg = SimpleNamespace()
     for key, default in EMU35_GENERATION_DEFAULTS.items():
@@ -617,6 +620,11 @@ def _literal_subscript_key(node: ast.Subscript) -> str | None:
     if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
         return slice_node.value
     return None
+
+
+def _set_if_not_none(target: dict[str, Any], key: str, value: Any) -> None:
+    if value is not None:
+        target[key] = value
 
 
 def _missing_attribute_name(exc: AttributeError) -> str | None:

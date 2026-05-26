@@ -78,9 +78,9 @@ class GenerationConfig:
     image_area: int | None = None
     target_height: int | None = None
     target_width: int | None = None
-    temperature: float = 0.2
-    top_p: float = 0.9
-    top_k: int = 0
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
     do_sample: bool = False
     num_beams: int = 1
     repetition_penalty: float = 1.0
