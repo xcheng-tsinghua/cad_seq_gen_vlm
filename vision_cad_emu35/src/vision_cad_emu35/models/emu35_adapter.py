@@ -45,7 +45,7 @@ EMU35_SAMPLING_DEFAULTS = {
     "top_k": 0,
     "top_p": 0.9,
     "temperature": 0.2,
-    "max_new_tokens": 1024,
+    "max_new_tokens": 1536,
     "do_sample": False,
     "num_beams": 1,
     "repetition_penalty": 1.0,
@@ -377,24 +377,36 @@ class Emu35Adapter:
             "input_has_visual_tokens": _looks_like_visual_token_text(text),
             "multimodal_decode_called": False,
             "decode_image_called": False,
+            "compat_image_decode_called": False,
         }
         text_parts: list[str] = []
         images: list[Image.Image] = []
 
-        try:
-            metadata["multimodal_decode_called"] = True
-            mm_out = self.official["multimodal_decode"](text, self.tokenizer, self.vq_model)
-            decoded_text, decoded_images, decoded_meta = extract_text_and_images_from_emu35_event(mm_out)
-            metadata["multimodal_decode_summary"] = summarize_emu35_event(mm_out)
-            metadata["multimodal_decode_extraction"] = decoded_meta
-            if decoded_text:
-                text_parts.append(decoded_text)
-            if decoded_images:
-                images.extend(decoded_images)
-        except Exception as exc:
-            metadata["multimodal_decode_error"] = f"{type(exc).__name__}: {exc}"
+        compat_text, compat_images, compat_meta = self._decode_emu35_image_token_blocks(text)
+        metadata["compat_image_decode_called"] = True
+        metadata["compat_image_decode"] = compat_meta
+        if compat_text:
+            text_parts.append(compat_text)
+        if compat_images:
+            images.extend(compat_images)
 
-        if not images and _looks_like_visual_token_text(text):
+        if int(compat_meta.get("num_blocks", 0) or 0) > 0:
+            metadata["multimodal_decode_skipped"] = "compat_image_token_block_decoder_handled_this_payload"
+        else:
+            try:
+                metadata["multimodal_decode_called"] = True
+                mm_out = self.official["multimodal_decode"](text, self.tokenizer, self.vq_model)
+                decoded_text, decoded_images, decoded_meta = extract_text_and_images_from_emu35_event(mm_out)
+                metadata["multimodal_decode_summary"] = summarize_emu35_event(mm_out)
+                metadata["multimodal_decode_extraction"] = decoded_meta
+                if decoded_text and decoded_text not in text_parts:
+                    text_parts.append(decoded_text)
+                if decoded_images:
+                    images.extend(decoded_images)
+            except Exception as exc:
+                metadata["multimodal_decode_error"] = f"{type(exc).__name__}: {exc}"
+
+        if not images and _looks_like_visual_token_text(text) and int(compat_meta.get("num_blocks", 0) or 0) == 0:
             decode_image = self.official.get("decode_image")
             if decode_image is not None:
                 try:
@@ -408,7 +420,82 @@ class Emu35Adapter:
 
         metadata["text_length"] = len("".join(text_parts).strip())
         metadata["num_images"] = len(images)
+        return "".join(text_parts).strip(), _dedupe_images_by_identity(images), metadata
+
+    def _decode_emu35_image_token_blocks(self, text: str) -> tuple[str, list[Image.Image], dict[str, Any]]:
+        boi = re.escape(str(getattr(self.tokenizer, "boi_token", "<|image start|>")))
+        img_token = re.escape(str(getattr(self.tokenizer, "img_token", "<|image token|>")))
+        eoi_token = str(getattr(self.tokenizer, "eoi_token", "<|image end|>"))
+        eoi = re.escape(eoi_token)
+        pattern = re.compile(
+            rf"{boi}\s*(?P<height>\d+)\s*\*\s*(?P<width>\d+)\s*{img_token}(?P<body>.*?)(?:{eoi}|$)",
+            re.DOTALL,
+        )
+
+        matches = list(pattern.finditer(text))
+        metadata: dict[str, Any] = {
+            "num_blocks": len(matches),
+            "blocks": [],
+            "num_images": 0,
+        }
+        if not matches:
+            clean = _strip_special_tail_text(text)
+            return clean, [], metadata
+
+        text_parts: list[str] = []
+        images: list[Image.Image] = []
+        previous_end = 0
+        for index, match in enumerate(matches):
+            prefix = _strip_special_tail_text(text[previous_end : match.start()])
+            if prefix:
+                text_parts.append(prefix)
+            height = int(match.group("height"))
+            width = int(match.group("width"))
+            body = match.group("body")
+            token_ids = [int(value) for value in re.findall(r"<\|visual token\s+(\d+)\|>", body)]
+            required = height * width
+            has_end_token = eoi_token in match.group(0)
+            block_meta: dict[str, Any] = {
+                "index": index,
+                "height": height,
+                "width": width,
+                "required_visual_tokens": required,
+                "found_visual_tokens": len(token_ids),
+                "has_image_end_token": has_end_token,
+                "decoded": False,
+            }
+            if len(token_ids) >= required:
+                try:
+                    image = self._decode_visual_token_grid(token_ids[:required], height, width)
+                    images.append(image)
+                    block_meta["decoded"] = True
+                    block_meta["image_size"] = list(image.size)
+                except Exception as exc:
+                    block_meta["decode_error"] = f"{type(exc).__name__}: {exc}"
+            else:
+                block_meta["decode_error"] = (
+                    f"Only {len(token_ids)} visual tokens were generated, but {required} are required "
+                    f"for a {height}x{width} image. Increase generation.max_new_tokens."
+                )
+            metadata["blocks"].append(block_meta)
+            previous_end = match.end()
+
+        suffix = _strip_special_tail_text(text[previous_end:])
+        if suffix:
+            text_parts.append(suffix)
+        metadata["num_images"] = len(images)
         return "".join(text_parts).strip(), images, metadata
+
+    def _decode_visual_token_grid(self, token_ids: list[int], height: int, width: int) -> Image.Image:
+        import numpy as np
+        import torch
+
+        device = next(iter(self.vq_model.parameters())).device
+        image = torch.tensor(token_ids, dtype=torch.long, device=device).view(height, width)
+        decoded = self.vq_model.decode_code(image[None], shape=(1, height, width, 256)).float()
+        decoded = decoded[0].permute(1, 2, 0)
+        array = ((decoded + 1.0) * 127.5).clamp(0, 255).detach().cpu().numpy().astype(np.uint8)
+        return Image.fromarray(array)
 
     def _candidate_multimodal_strings(self, event: Any) -> list[tuple[str, str]]:
         candidates: list[tuple[str, str]] = []
@@ -827,6 +914,14 @@ def _looks_like_tensor_or_array(value: Any) -> bool:
 
 def _looks_like_visual_token_text(text: str) -> bool:
     return "<|visual token" in text or "<|image" in text or "<|boi|>" in text or "<|eoi|>" in text
+
+
+def _strip_special_tail_text(text: str) -> str:
+    image_start = text.find("<|image start|>")
+    if image_start >= 0:
+        text = text[:image_start]
+    text = text.replace("<|extra_101|>", "").replace("<|extra_204|>", "")
+    return text.strip()
 
 
 def _safe_preview(text: str, limit: int = 240) -> str:

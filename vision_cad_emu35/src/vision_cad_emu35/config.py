@@ -72,7 +72,7 @@ class RagConfig:
 
 @dataclass
 class GenerationConfig:
-    max_new_tokens: int = 1024
+    max_new_tokens: int = 1536
     max_image_tokens: int | None = None
     max_position_embeddings: int = 32768
     image_area: int | None = None
