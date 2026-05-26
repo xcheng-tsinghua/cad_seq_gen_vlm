@@ -25,6 +25,7 @@ class ModelConfig:
     precision: str = "bf16"
     attn_implementation: str = "eager"
     clear_transformers_remote_code_cache: bool = True
+    patch_tokenizer_source: bool = True
     device_map: str | None = "auto"
     tokenizer_id_or_path: str | None = None
     vq_path: str | None = None
@@ -73,9 +74,34 @@ class RagConfig:
 class GenerationConfig:
     max_new_tokens: int = 1024
     max_image_tokens: int | None = None
+    max_position_embeddings: int = 32768
+    image_area: int | None = None
+    target_height: int | None = None
+    target_width: int | None = None
     temperature: float = 0.2
     top_p: float = 0.9
+    top_k: int = 0
     do_sample: bool = False
+    num_beams: int = 1
+    repetition_penalty: float = 1.0
+    length_penalty: float = 1.0
+    use_cache: bool = True
+    unconditional_type: str = "no_text"
+    guidance_scale: float = 1.0
+    classifier_free_guidance: float = 1.0
+    negative_prompt: str = ""
+    cfg_scale: float = 1.0
+    image_cfg_scale: float = 1.0
+    image_top_k: int = 2048
+    image_top_p: float = 0.9
+    image_temperature: float = 1.0
+    text_top_k: int = 0
+    text_top_p: float = 0.9
+    text_temperature: float = 0.2
+    max_img_token: int = 4096
+    stream: bool = False
+    streaming: bool = False
+    use_differential_sampling: bool = True
 
 
 @dataclass

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import warnings
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from inspect import Parameter, signature
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterator
 
@@ -28,6 +30,50 @@ SPECIAL_TOKENS = {
     "BOC": "<|extra_50|>",
     "EOC": "<|extra_51|>",
 }
+
+EMU35_SAMPLING_DEFAULTS = {
+    "use_cache": True,
+    "text_top_k": 0,
+    "text_top_p": 0.9,
+    "text_temperature": 0.2,
+    "image_top_k": 2048,
+    "image_top_p": 0.9,
+    "image_temperature": 1.0,
+    "top_k": 0,
+    "top_p": 0.9,
+    "temperature": 0.2,
+    "max_new_tokens": 1024,
+    "do_sample": False,
+    "num_beams": 1,
+    "repetition_penalty": 1.0,
+    "length_penalty": 1.0,
+    "guidance_scale": 1.0,
+    "use_differential_sampling": True,
+}
+
+EMU35_GENERATION_DEFAULTS = {
+    "max_position_embeddings": 32768,
+    "unconditional_type": "no_text",
+    "classifier_free_guidance": 1.0,
+    "guidance_scale": 1.0,
+    "negative_prompt": "",
+    "cfg_scale": 1.0,
+    "image_cfg_scale": 1.0,
+    "max_img_token": 4096,
+    "stream": False,
+    "streaming": False,
+}
+
+EMU35_REQUIRED_CFG_FIELDS = (
+    "image_area",
+    "sampling_params",
+    "special_token_ids",
+    "classifier_free_guidance",
+    "unconditional_type",
+    "target_height",
+    "target_width",
+    "image_cfg_scale",
+)
 
 
 class Emu35Adapter:
@@ -152,8 +198,7 @@ class Emu35Adapter:
         generation_config: GenerationConfig | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._require_loaded()
-        gen_cfg = generation_config if isinstance(generation_config, GenerationConfig) else GenerationConfig(**(generation_config or {}))
-        runtime_cfg = self._runtime_cfg(gen_cfg)
+        runtime_cfg = self._runtime_cfg(generation_config)
         image_str = "".join(
             self.official["build_image"](
                 resize_pad_image(image, self.config.image_size),
@@ -189,6 +234,14 @@ class Emu35Adapter:
                         text_parts.append(decoded_text)
                     if decoded_image is not None:
                         image = decoded_image
+        except AttributeError as exc:
+            missing_field = _missing_attribute_name(exc)
+            if missing_field and "SimpleNamespace" in str(exc):
+                raise RuntimeError(
+                    "Emu3.5 generation config is missing required field: "
+                    f"{missing_field}. Please update configs/rag.yaml or build_emu35_generation_cfg()."
+                ) from exc
+            raise RuntimeError(f"Emu3.5 generation failed: {exc}") from exc
         except Exception as exc:
             raise RuntimeError(f"Emu3.5 generation failed: {exc}") from exc
 
@@ -210,9 +263,8 @@ class Emu35Adapter:
             f"ASSISTANT: {SPECIAL_TOKENS['BSS']}"
         )
 
-    def _runtime_cfg(self, generation_config: GenerationConfig | None = None) -> Any:
-        gen = generation_config or GenerationConfig()
-        cfg = SimpleNamespace()
+    def _runtime_cfg(self, generation_config: GenerationConfig | dict[str, Any] | None = None) -> Any:
+        cfg = build_emu35_generation_cfg(generation_config)
         cfg.model_path = self.config.model_id_or_path
         cfg.tokenizer_path = self.config.tokenizer_path or self.config.model_id_or_path
         cfg.vq_path = self.config.vision_tokenizer_path or self.config.vq_path
@@ -223,28 +275,28 @@ class Emu35Adapter:
         cfg.image_area = self.config.image_area or self.config.image_size * self.config.image_size
         cfg.target_height = self.config.image_size
         cfg.target_width = self.config.image_size
-        cfg.streaming = False
-        cfg.classifier_free_guidance = self.config.classifier_free_guidance
-        cfg.sampling_params = {
-            "use_cache": True,
-            "text_top_k": self.config.text_top_k,
-            "text_top_p": gen.top_p,
-            "text_temperature": gen.temperature,
-            "image_top_k": self.config.image_top_k,
-            "image_top_p": self.config.image_top_p,
-            "image_temperature": self.config.image_temperature,
-            "top_k": self.config.top_k,
-            "top_p": gen.top_p,
-            "temperature": gen.temperature,
-            "max_new_tokens": gen.max_new_tokens,
-            "guidance_scale": self.config.guidance_scale,
-            "use_differential_sampling": self.config.use_differential_sampling,
-            "do_sample": gen.do_sample,
-            "num_beams": 1,
-        }
-        for key, value in cfg.sampling_params.items():
-            setattr(cfg, key, value)
+        cfg.vision_tokenizer = self.vq_model
+        cfg.special_token_ids = self._special_token_ids()
         return cfg
+
+    def _special_token_ids(self) -> dict[str, int]:
+        ids: dict[str, int] = {}
+        for name, token in SPECIAL_TOKENS.items():
+            try:
+                encoded = self.tokenizer.encode(token, add_special_tokens=False)
+                if encoded:
+                    ids[name] = int(encoded[0])
+                    continue
+            except Exception:
+                pass
+            value = getattr(self.tokenizer, f"{name.lower()}_token_id", None)
+            if value is not None:
+                ids[name] = int(value)
+        if "PAD" not in ids:
+            ids["PAD"] = int(getattr(self.tokenizer, "pad_token_id", 0) or 0)
+        if "EOS" not in ids:
+            ids["EOS"] = int(getattr(self.tokenizer, "eos_token_id", ids["PAD"]))
+        return ids
 
     def _decode_generation_event(self, event: Any) -> tuple[str, Image.Image | None]:
         if isinstance(event, dict):
@@ -465,3 +517,108 @@ def parse_operation_type(raw_text: str) -> str:
         return "<STOP>"
     first_line = stripped.splitlines()[0] if stripped else ""
     return first_line.strip() or "other"
+
+
+def build_emu35_generation_cfg(project_generation_config: GenerationConfig | dict[str, Any] | None) -> SimpleNamespace:
+    """Build the config object expected by official Emu3.5 generation utilities."""
+
+    raw = _generation_config_to_dict(project_generation_config)
+    sampling_params = dict(EMU35_SAMPLING_DEFAULTS)
+    for key in tuple(sampling_params):
+        if key in raw and raw[key] is not None:
+            sampling_params[key] = raw[key]
+    sampling_params["max_new_tokens"] = raw.get("max_new_tokens", sampling_params["max_new_tokens"])
+    sampling_params["top_p"] = raw.get("top_p", sampling_params["top_p"])
+    sampling_params["temperature"] = raw.get("temperature", sampling_params["temperature"])
+    sampling_params["top_k"] = raw.get("top_k", sampling_params["top_k"])
+    sampling_params["do_sample"] = raw.get("do_sample", sampling_params["do_sample"])
+    sampling_params["num_beams"] = raw.get("num_beams", sampling_params["num_beams"])
+    sampling_params["repetition_penalty"] = raw.get("repetition_penalty", sampling_params["repetition_penalty"])
+    sampling_params["length_penalty"] = raw.get("length_penalty", sampling_params["length_penalty"])
+    sampling_params["use_cache"] = raw.get("use_cache", sampling_params["use_cache"])
+    sampling_params["guidance_scale"] = raw.get("guidance_scale", sampling_params["guidance_scale"])
+    sampling_params["use_differential_sampling"] = raw.get(
+        "use_differential_sampling",
+        sampling_params["use_differential_sampling"],
+    )
+
+    cfg = SimpleNamespace()
+    for key, default in EMU35_GENERATION_DEFAULTS.items():
+        setattr(cfg, key, raw.get(key, default))
+    cfg.sampling_params = sampling_params
+    cfg.streaming = bool(raw.get("streaming", raw.get("stream", cfg.streaming)))
+    cfg.stream = cfg.streaming
+    cfg.max_new_tokens = sampling_params["max_new_tokens"]
+    cfg.max_image_tokens = raw.get("max_image_tokens")
+    cfg.max_position_embeddings = raw.get("max_position_embeddings", cfg.max_position_embeddings)
+    cfg.image_area = raw.get("image_area", 512 * 512)
+    cfg.target_height = raw.get("target_height", 512)
+    cfg.target_width = raw.get("target_width", 512)
+    cfg.special_token_ids = raw.get("special_token_ids", {})
+    cfg.vision_tokenizer = raw.get("vision_tokenizer")
+
+    for key, value in sampling_params.items():
+        setattr(cfg, key, value)
+    return cfg
+
+
+def inspect_generation_utils_cfg_fields(path: str | Path) -> dict[str, list[str]]:
+    """Statically inspect official generation_utils.py for cfg field reads."""
+
+    source_path = Path(path)
+    text = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(text, filename=str(source_path))
+    attrs: set[str] = set()
+    getattr_attrs: set[str] = set()
+    sampling_keys: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "cfg":
+            attrs.add(node.attr)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "cfg"
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            getattr_attrs.add(node.args[1].value)
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "cfg"
+            and node.value.attr == "sampling_params"
+        ):
+            key = _literal_subscript_key(node)
+            if key is not None:
+                sampling_keys.add(key)
+    return {
+        "cfg_attributes": sorted(attrs | getattr_attrs),
+        "cfg_getattr_attributes": sorted(getattr_attrs),
+        "sampling_param_keys": sorted(sampling_keys),
+    }
+
+
+def _generation_config_to_dict(config: GenerationConfig | dict[str, Any] | None) -> dict[str, Any]:
+    if config is None:
+        return asdict(GenerationConfig())
+    if isinstance(config, dict):
+        return dict(config)
+    if is_dataclass(config):
+        return asdict(config)
+    return dict(vars(config))
+
+
+def _literal_subscript_key(node: ast.Subscript) -> str | None:
+    slice_node = node.slice
+    if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
+        return slice_node.value
+    return None
+
+
+def _missing_attribute_name(exc: AttributeError) -> str | None:
+    match = re.search(r"has no attribute '([^']+)'", str(exc))
+    return match.group(1) if match else None

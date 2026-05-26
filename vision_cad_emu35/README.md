@@ -125,6 +125,7 @@ model:
   local_files_only: true
   attn_implementation: "eager"
   clear_transformers_remote_code_cache: true
+  patch_tokenizer_source: true
 ```
 
 If `model.emu_repo_path` is absolute, the runtime uses it directly. If it is relative, the runtime resolves it from the project root, so `third_party/Emu3.5` works no matter where you launch the scripts from.
@@ -149,6 +150,12 @@ Check that the custom Emu3.5 tokenizer is compatible with the installed Transfor
 
 ```bash
 python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
+
+Check that the project generation config contains the fields expected by the official Emu3.5 generation runtime:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
 ```
 
 ## Dataset Layout
@@ -208,7 +215,13 @@ python scripts/check_emu35_imports.py --config configs/rag.yaml
 python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
 ```
 
-6. Edit dataset path in `configs/rag.yaml`:
+6. Check Emu3.5 generation config compatibility:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+7. Edit dataset path in `configs/rag.yaml`:
 
 ```yaml
 data:
@@ -222,7 +235,7 @@ rag:
   kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
 ```
 
-7. Prepare manifest:
+8. Prepare manifest:
 
 ```bash
 python scripts/prepare_manifest.py \
@@ -231,7 +244,7 @@ python scripts/prepare_manifest.py \
   --add-stop-samples
 ```
 
-8. Build RAG knowledge base:
+9. Build RAG knowledge base:
 
 ```bash
 python scripts/build_kb.py \
@@ -239,14 +252,14 @@ python scripts/build_kb.py \
   --dataset-root /path/to/your/dataset
 ```
 
-9. Inspect KB:
+10. Inspect KB:
 
 ```bash
 python scripts/inspect_kb.py \
   --config configs/rag.yaml
 ```
 
-10. Run single inference:
+11. Run single inference:
 
 ```bash
 python scripts/infer_rag_single.py \
@@ -256,7 +269,7 @@ python scripts/infer_rag_single.py \
   --output-dir /root/autodl-tmp/data/outputs/rag_single
 ```
 
-11. Launch web demo:
+12. Launch web demo:
 
 ```bash
 python scripts/launch_web_demo.py \
@@ -413,6 +426,26 @@ python scripts/infer_rag_single.py \
 ```
 
 If stale cache is suspected, clear only the Emu3.5 remote-code cache under `~/.cache/huggingface/modules/transformers_modules/`. Do not delete model weights under `/root/autodl-tmp/data/BAAI/Emu3.5`.
+
+### Emu3.5 Generation Config Missing Field
+
+Problem:
+
+```text
+AttributeError: 'types.SimpleNamespace' object has no attribute 'unconditional_type'
+```
+
+Cause:
+
+The official `third_party/Emu3.5/src/utils/generation_utils.py` expects an Emu3.5-shaped config object, including `unconditional_type`, `special_token_ids`, `classifier_free_guidance`, `sampling_params`, target image dimensions, and image CFG fields.
+
+Solution:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+The adapter builds this object with `build_emu35_generation_cfg()` and fills safe defaults. `configs/rag.yaml` includes all configurable generation fields explicitly.
 
 ## RAG Components
 

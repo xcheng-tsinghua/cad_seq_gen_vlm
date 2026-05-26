@@ -12,6 +12,9 @@ from vision_cad_emu35.config import ModelConfig, resolve_project_path
 from vision_cad_emu35.model_paths import ensure_default_local_model_paths
 
 
+UNSAFE_SPECIAL_TOKENS_SET_RE = re.compile(r"self\.special_tokens_set(?!\s*=)")
+
+
 TOKENIZER_HELPER = '''
     def _get_emu3_special_tokens_set(self):
         special_tokens_set = getattr(self, "special_tokens_set", None)
@@ -88,10 +91,12 @@ def apply_emu3_tokenizer_compat(
             if materialized_source is not None:
                 source_paths = [materialized_source]
     report.tokenizer_source_paths = [str(path) for path in source_paths]
+    configured_patch_source = _get_attr_or_key(model_config, "patch_tokenizer_source")
+    patch_source = True if configured_patch_source is None else bool(configured_patch_source)
 
     for source_path in source_paths:
         try:
-            result = patch_emu3_tokenizer_file(source_path)
+            result = patch_emu3_tokenizer_file(source_path) if patch_source else inspect_emu3_tokenizer_file(source_path)
         except Exception as exc:
             message = f"failed to patch tokenizer source {source_path}: {type(exc).__name__}: {exc}"
             report.warnings.append(message)
@@ -101,11 +106,18 @@ def apply_emu3_tokenizer_compat(
         report.patch_applied = report.patch_applied or result["patch_applied"]
         if result["patch_applied"]:
             report.patched_source_paths.append(str(source_path))
-        _emit(
-            "tokenizer source path: "
-            f"{source_path}; patch_needed={result['patch_needed']}; patch_applied={result['patch_applied']}",
-            verbose,
-        )
+        if verbose:
+            _emit(
+                "tokenizer source path: "
+                f"{source_path}; patch_needed={result['patch_needed']}; patch_applied={result['patch_applied']}",
+                verbose,
+            )
+        if patch_source and result["patch_needed"] and not result["patch_applied"]:
+            raise RuntimeError(
+                "Emu3 tokenizer compatibility patch was required but was not applied. "
+                f"Tokenizer source: {source_path}. "
+                "Set model.patch_tokenizer_source: true or patch tokenization_emu3.py manually."
+            )
 
     if clear_cache is None:
         configured_clear_cache = _get_attr_or_key(model_config, "clear_transformers_remote_code_cache")
@@ -130,7 +142,7 @@ def apply_emu3_tokenizer_compat(
         report.cache_skipped = True
         if cache_paths:
             _emit("Transformers remote-code cache detected but cache clearing is disabled.", verbose)
-    if not cache_paths:
+    if not cache_paths and verbose:
         _emit("No Emu3.5 Transformers remote-code cache directory was detected.", verbose)
 
     if not source_paths:
@@ -142,6 +154,8 @@ def apply_emu3_tokenizer_compat(
         _emit(message, verbose)
     elif report.patch_needed and not report.patch_applied:
         message = "Emu3 tokenizer compatibility patch was needed but was not applied."
+        if patch_source:
+            raise RuntimeError(message)
         report.warnings.append(message)
         _emit(message, verbose)
     return report
@@ -179,9 +193,8 @@ def find_tokenization_emu3_sources(model_config: ModelConfig | dict[str, Any]) -
 def patch_emu3_tokenizer_file(path: str | Path) -> dict[str, bool]:
     source_path = Path(path)
     text = source_path.read_text(encoding="utf-8")
-    patch_needed = "self.special_tokens_set" in text
-    updated = re.sub(
-        r"self\.special_tokens_set(?!\s*=)",
+    patch_needed = bool(UNSAFE_SPECIAL_TOKENS_SET_RE.search(text))
+    updated = UNSAFE_SPECIAL_TOKENS_SET_RE.sub(
         "self._get_emu3_special_tokens_set()",
         text,
     )
@@ -194,6 +207,11 @@ def patch_emu3_tokenizer_file(path: str | Path) -> dict[str, bool]:
             shutil.copy2(source_path, backup_path)
         source_path.write_text(updated, encoding="utf-8")
     return {"patch_needed": patch_needed, "patch_applied": patch_applied}
+
+
+def inspect_emu3_tokenizer_file(path: str | Path) -> dict[str, bool]:
+    text = Path(path).read_text(encoding="utf-8")
+    return {"patch_needed": bool(UNSAFE_SPECIAL_TOKENS_SET_RE.search(text)), "patch_applied": False}
 
 
 def find_emu3_transformers_cache_dirs() -> list[Path]:

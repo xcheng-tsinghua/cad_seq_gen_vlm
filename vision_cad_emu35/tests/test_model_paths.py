@@ -4,6 +4,7 @@ import pytest
 
 from vision_cad_emu35.config import AppConfig, find_project_root, resolve_project_path
 from vision_cad_emu35.model_paths import apply_model_root_override, validate_local_model_paths
+from vision_cad_emu35.models.emu35_adapter import build_emu35_generation_cfg
 from vision_cad_emu35.models.emu35_compat import patch_emu3_tokenizer_file
 from vision_cad_emu35.utils.runtime_env import normalize_thread_env
 
@@ -51,3 +52,12 @@ def test_emu3_tokenizer_source_patch_adds_safe_helper(tmp_path):
     assert result == {"patch_needed": True, "patch_applied": True}
     assert "_get_emu3_special_tokens_set" in text
     assert "surface_form not in self._get_emu3_special_tokens_set()" in text
+
+
+def test_build_emu35_generation_cfg_contains_required_fields():
+    cfg = build_emu35_generation_cfg({"max_new_tokens": 12, "unconditional_type": "no_text"})
+    assert cfg.unconditional_type == "no_text"
+    assert cfg.sampling_params["max_new_tokens"] == 12
+    assert "text_top_k" in cfg.sampling_params
+    assert "image_top_k" in cfg.sampling_params
+    assert hasattr(cfg, "special_token_ids")

@@ -6,6 +6,21 @@ import sys
 from pathlib import Path
 from typing import Any
 
+INITIAL_THREAD_ENV = {name: os.environ.get(name) for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS")}
+
+
+def _bootstrap_thread_env() -> None:
+    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        try:
+            valid = int(str(os.environ.get(name, "")).strip()) > 0
+        except ValueError:
+            valid = False
+        if not valid:
+            os.environ[name] = "8"
+
+
+_bootstrap_thread_env()
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -87,9 +102,10 @@ def print_optional_imports() -> None:
 
 def print_thread_env_status() -> None:
     for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        original = INITIAL_THREAD_ENV.get(name)
         value = os.environ.get(name)
-        print(f"{name}: {value if value is not None else '<unset>'}")
-        if not is_positive_int_env(value):
+        print(f"{name}: {value if value is not None else '<unset>'} (original: {original if original is not None else '<unset>'})")
+        if not is_positive_int_env(original):
             warn(f"{name} is not a positive integer. Runtime scripts will normalize invalid values to 8 before model load.")
 
 

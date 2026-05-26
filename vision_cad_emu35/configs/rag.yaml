@@ -11,6 +11,7 @@ model:
   precision: "bf16"
   attn_implementation: "eager"
   clear_transformers_remote_code_cache: true
+  patch_tokenizer_source: true
 
 data:
   dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img"
@@ -30,9 +31,34 @@ rag:
 
 generation:
   max_new_tokens: 1024
+  max_position_embeddings: 32768
+  image_area: 262144
+  target_height: 512
+  target_width: 512
   temperature: 0.2
   top_p: 0.9
+  top_k: 0
   do_sample: false
+  num_beams: 1
+  repetition_penalty: 1.0
+  length_penalty: 1.0
+  use_cache: true
+  unconditional_type: "no_text"
+  guidance_scale: 1.0
+  classifier_free_guidance: 1.0
+  negative_prompt: ""
+  cfg_scale: 1.0
+  image_cfg_scale: 1.0
+  image_top_k: 2048
+  image_top_p: 0.9
+  image_temperature: 1.0
+  text_top_k: 0
+  text_top_p: 0.9
+  text_temperature: 0.2
+  max_img_token: 4096
+  stream: false
+  streaming: false
+  use_differential_sampling: true
 
 api:
   host: "0.0.0.0"
