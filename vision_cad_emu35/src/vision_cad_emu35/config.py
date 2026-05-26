@@ -9,6 +9,7 @@ from vision_cad_emu35.model_paths import DEFAULT_MODEL_ROOT, default_local_model
 
 _DEFAULT_MODEL_PATHS = default_local_model_paths(DEFAULT_MODEL_ROOT)
 DEFAULT_EMU_REPO_PATH = "third_party/Emu3.5"
+ALLOWED_ATTN_IMPLEMENTATIONS = ("eager", "sdpa", "auto", "flash_attention_2")
 
 
 @dataclass
@@ -22,6 +23,7 @@ class ModelConfig:
     trust_remote_code: bool = True
     image_size: int = 512
     precision: str = "bf16"
+    attn_implementation: str = "eager"
     device_map: str | None = "auto"
     tokenizer_id_or_path: str | None = None
     vq_path: str | None = None
