@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from vision_cad_emu35.config import AppConfig
+from vision_cad_emu35.config import AppConfig, find_project_root, resolve_project_path
 from vision_cad_emu35.model_paths import apply_model_root_override, validate_local_model_paths
 
 
@@ -21,3 +21,7 @@ def test_local_files_only_missing_paths_fail_early(tmp_path):
     with pytest.raises(FileNotFoundError, match="python scripts/download_models.py"):
         validate_local_model_paths(config.model)
 
+
+def test_relative_emu_repo_path_resolves_from_project_root():
+    project_root = find_project_root()
+    assert resolve_project_path("third_party/Emu3.5") == project_root / "third_party" / "Emu3.5"

@@ -8,6 +8,7 @@ from vision_cad_emu35.model_paths import DEFAULT_MODEL_ROOT, default_local_model
 
 
 _DEFAULT_MODEL_PATHS = default_local_model_paths(DEFAULT_MODEL_ROOT)
+DEFAULT_EMU_REPO_PATH = "third_party/Emu3.5"
 
 
 @dataclass
@@ -16,7 +17,7 @@ class ModelConfig:
     model_id_or_path: str = _DEFAULT_MODEL_PATHS["model_id_or_path"]
     tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["tokenizer_path"]
     vision_tokenizer_path: str | None = _DEFAULT_MODEL_PATHS["vision_tokenizer_path"]
-    emu_repo_path: str | None = None
+    emu_repo_path: str | None = DEFAULT_EMU_REPO_PATH
     local_files_only: bool = True
     trust_remote_code: bool = True
     image_size: int = 512
@@ -130,6 +131,29 @@ def _dataclass_from_dict(cls: type[Any], raw: dict[str, Any]) -> Any:
         if "allow_origins" in normalized and "cors_origins" not in normalized:
             normalized["cors_origins"] = normalized.pop("allow_origins")
     return cls(**{k: v for k, v in normalized.items() if k in names})
+
+
+def find_project_root(start: str | Path | None = None) -> Path:
+    """Find the project root by walking upward until pyproject.toml is found."""
+
+    current = Path(start).resolve() if start is not None else Path(__file__).resolve()
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").exists():
+            return candidate
+    return Path(__file__).resolve().parents[2]
+
+
+def resolve_project_path(path_like: str | Path | None) -> Path | None:
+    """Resolve absolute paths directly and relative paths from the project root."""
+
+    if path_like is None:
+        return None
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (find_project_root() / path).resolve()
 
 
 def load_config(path: str | Path | None) -> AppConfig:

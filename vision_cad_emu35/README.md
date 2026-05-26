@@ -87,22 +87,31 @@ Runtime loading always uses local paths by default. The adapter does not downloa
 
 This project downloads Emu3.5 model weights, but it also needs the official Emu3.5 source code at runtime. [models/emu35_adapter.py](src/vision_cad_emu35/models/emu35_adapter.py) imports official utilities such as `build_emu3p5`, `build_image`, `generate`, and `multimodal_decode`.
 
-Recommended checkout path:
+Use this portability-oriented layout:
+
+- Large model weights stay under `/root/autodl-tmp/data`.
+- The RAG knowledge base stays under `/root/autodl-tmp/data/outputs/rag_kb`.
+- Generated outputs and API artifacts should stay under `/root/autodl-tmp/data/outputs`.
+- Official Emu3.5 runtime source code lives inside this project under `third_party/Emu3.5`.
+
+Do not move model weights into `third_party`, and do not vendor downloaded model weights into this repository.
+
+Recommended official source checkout path:
 
 ```text
-/root/autodl-tmp/data/Emu3.5
+third_party/Emu3.5
 ```
 
 Clone the official runtime source:
 
 ```bash
-cd /root/autodl-tmp/data
-git clone https://github.com/baaivision/Emu3.5.git
+mkdir -p third_party
+git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
 ```
 
 If GitHub access is slow, manually download/upload the repo or use an available GitHub mirror/proxy.
 
-Then confirm `configs/rag.yaml` points to that checkout while keeping the local model-weight paths:
+Then confirm `configs/rag.yaml` points to that checkout while keeping the local model-weight paths under `/root/autodl-tmp/data`:
 
 ```yaml
 model:
@@ -110,16 +119,18 @@ model:
   model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
   tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
   vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
-  emu_repo_path: "/root/autodl-tmp/data/Emu3.5"
+  emu_repo_path: "third_party/Emu3.5"
   local_files_only: true
 ```
+
+If `model.emu_repo_path` is absolute, the runtime uses it directly. If it is relative, the runtime resolves it from the project root, so `third_party/Emu3.5` works no matter where you launch the scripts from.
 
 Do not let the official Emu3.5 requirements reinstall or downgrade torch. The Blackwell environment should keep its CUDA-compatible torch build, such as `torch 2.12.0+cu130`.
 
 If you install official Emu3.5 dependencies, filter out torch and optional acceleration packages first:
 
 ```bash
-cp /root/autodl-tmp/data/Emu3.5/requirements.txt /tmp/emu35_requirements_no_torch.txt
+cp third_party/Emu3.5/requirements.txt /tmp/emu35_requirements_no_torch.txt
 sed -i '/^torch/d;/^torchvision/d;/^torchaudio/d;/flash-attn/d;/flash_attn/d;/xformers/d;/bitsandbytes/d' /tmp/emu35_requirements_no_torch.txt
 pip install -r /tmp/emu35_requirements_no_torch.txt
 ```
@@ -164,15 +175,15 @@ python scripts/download_models.py
 3. Install or configure official Emu3.5 runtime source code:
 
 ```bash
-cd /root/autodl-tmp/data
-git clone https://github.com/baaivision/Emu3.5.git
+mkdir -p third_party
+git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
 ```
 
 Make sure `configs/rag.yaml` contains:
 
 ```yaml
 model:
-  emu_repo_path: "/root/autodl-tmp/data/Emu3.5"
+  emu_repo_path: "third_party/Emu3.5"
 ```
 
 4. Check official Emu3.5 imports:
@@ -226,7 +237,7 @@ python scripts/infer_rag_single.py \
   --config configs/rag.yaml \
   --final-snapshot examples/final_snapshot.png \
   --prev-depth-map examples/prev_depth_map.png \
-  --output-dir outputs/rag_single
+  --output-dir /root/autodl-tmp/data/outputs/rag_single
 ```
 
 10. Launch web demo:

@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.config import load_config
+from vision_cad_emu35.config import load_config, resolve_project_path
 
 
 REQUIRED_IMPORTS = [
@@ -81,11 +81,11 @@ def _print_failure_help(repo_path: Path | None, configured_value: str | None) ->
             print("  <none>")
     print("\nFix:")
     print("  1. Clone or upload the official Emu3.5 repo, for example:")
-    print("     cd /root/autodl-tmp/data")
-    print("     git clone https://github.com/baaivision/Emu3.5.git")
+    print("     mkdir -p third_party")
+    print("     git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5")
     print("  2. Update configs/rag.yaml:")
     print('     model:')
-    print('       emu_repo_path: "/root/autodl-tmp/data/Emu3.5"')
+    print('       emu_repo_path: "third_party/Emu3.5"')
     print("  3. Re-run:")
     print("     python scripts/check_emu35_imports.py --config configs/rag.yaml")
 
@@ -97,7 +97,7 @@ def main() -> int:
 
     config_path = Path(args.config)
     emu_repo_path = _read_emu_repo_path(config_path)
-    repo_path = Path(emu_repo_path).expanduser().resolve() if emu_repo_path else None
+    repo_path = resolve_project_path(emu_repo_path) if emu_repo_path else None
 
     print(f"config: {config_path.resolve()}")
     print(f"emu_repo_path: {emu_repo_path if emu_repo_path else 'null'}")

@@ -5,13 +5,12 @@ import sys
 import warnings
 from dataclasses import asdict
 from inspect import Parameter, signature
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from PIL import Image
 
-from vision_cad_emu35.config import GenerationConfig, ModelConfig
+from vision_cad_emu35.config import GenerationConfig, ModelConfig, resolve_project_path
 from vision_cad_emu35.model_paths import DOWNLOAD_COMMAND, ensure_default_local_model_paths, validate_local_model_paths
 from vision_cad_emu35.utils.gpu import get_gpu_info
 from vision_cad_emu35.utils.image_io import resize_pad_image
@@ -240,9 +239,10 @@ class Emu35Adapter:
         return "".join(text_parts), image
 
     def _prepare_import_path(self) -> None:
-        repo_path = self.config.emu_repo_path
+        repo_path = resolve_project_path(self.config.emu_repo_path)
         if repo_path:
-            repo = str(Path(repo_path).resolve())
+            repo = str(repo_path)
+            self.extra_config["resolved_emu_repo_path"] = repo
             if repo not in sys.path:
                 sys.path.insert(0, repo)
 
