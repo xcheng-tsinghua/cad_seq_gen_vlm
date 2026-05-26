@@ -22,7 +22,7 @@ rag:
   embedding_backend: "simple"
   vector_backend: "numpy"
   top_k: 3
-  max_reference_images: 6
+  max_reference_images: 2
   include_example_outputs: true
   include_example_final_snapshot: false
   include_example_prev_depth_map: true
