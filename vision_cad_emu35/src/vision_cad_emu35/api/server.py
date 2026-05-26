@@ -111,11 +111,48 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             prompt_extra=prompt_extra,
         )
         result = adapter.generate_multimodal(prompt.prompt_text, prompt.images, config.generation)
-        if result.get("image") is not None:
-            save_image(result["image"], request_dir / "overlayed_all.png")
+        generated_images = list(result.get("images") or [])
+        if not generated_images and result.get("image") is not None:
+            generated_images = [result["image"]]
+        image_path: str | None = None
+        generated_image_paths: list[str] = []
+        if generated_images:
+            overlay_path = request_dir / "overlayed_all.png"
+            save_image(generated_images[0], overlay_path)
+            image_path = str(overlay_path)
+            generated_dir = request_dir / "generated_images"
+            for index, image in enumerate(generated_images):
+                target = generated_dir / f"image_{index:03d}.png"
+                save_image(image, target)
+                generated_image_paths.append(str(target))
+        debug_events = result.get("emu35_events_debug") or result.get("metadata", {}).get("event_summaries") or []
+        debug_events_path: str | None = None
+        if getattr(config.generation, "save_debug_events", True) or not generated_images:
+            debug_path = request_dir / "emu35_events_debug.json"
+            debug_path.write_text(
+                json.dumps(
+                    {
+                        "num_generation_events": result.get("metadata", {}).get("num_generation_events", len(debug_events)),
+                        "num_generated_images": len(generated_images),
+                        "raw_text_missing": result.get("raw_text_missing", not bool(result.get("raw_text", ""))),
+                        "events": debug_events,
+                    },
+                    indent=2,
+                    default=str,
+                ),
+                encoding="utf-8",
+            )
+            debug_events_path = str(debug_path)
         response = {
             "operation_type": result.get("operation_type"),
-            "image_base64": image_to_base64(result["image"]) if result.get("image") is not None else None,
+            "raw_text": result.get("raw_text", ""),
+            "raw_text_missing": result.get("raw_text_missing", not bool(result.get("raw_text", ""))),
+            "image_base64": image_to_base64(generated_images[0]) if generated_images else None,
+            "image_path": image_path,
+            "num_generated_images": len(generated_images),
+            "generated_image_paths": generated_image_paths,
+            "debug_events_path": debug_events_path,
+            "image_missing": not bool(generated_images),
             "retrieved_examples": prompt.retrieved_examples,
             "kb_dir": str(app.state.retriever.kb_dir),
             "zero_shot": len(examples) == 0,
@@ -123,6 +160,12 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             "latency_seconds": time.perf_counter() - start,
             "warning": "No retrieved examples available; running zero-shot mode." if not examples else None,
         }
+        if not generated_images:
+            response.update(
+                {
+                    "image_missing_reason": "No PIL image was found in Emu3.5 generation events.",
+                }
+            )
         (request_dir / "prompt.txt").write_text(prompt.prompt_text, encoding="utf-8")
         (request_dir / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
         return response

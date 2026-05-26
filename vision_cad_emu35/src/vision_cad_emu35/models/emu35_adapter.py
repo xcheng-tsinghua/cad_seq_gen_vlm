@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import sys
 import warnings
@@ -20,6 +21,8 @@ from vision_cad_emu35.utils.gpu import get_gpu_info
 from vision_cad_emu35.utils.image_io import resize_pad_image
 from vision_cad_emu35.utils.runtime_env import normalize_thread_env
 
+
+logger = logging.getLogger(__name__)
 
 SPECIAL_TOKENS = {
     "BOS": "<|extra_203|>",
@@ -62,6 +65,7 @@ EMU35_GENERATION_DEFAULTS = {
     "max_img_token": 4096,
     "stream": False,
     "streaming": False,
+    "save_debug_events": True,
 }
 
 EMU35_REQUIRED_CFG_FIELDS = (
@@ -216,7 +220,8 @@ class Emu35Adapter:
         input_ids = self.tokenizer.encode(full_prompt, return_tensors="pt", add_special_tokens=False).to(self.device)
         unconditional_ids = self.tokenizer.encode(unconditional_prompt, return_tensors="pt", add_special_tokens=False).to(self.device)
         text_parts: list[str] = []
-        image: Image.Image | None = None
+        images_out: list[Image.Image] = []
+        event_debug: list[dict[str, Any]] = []
         try:
             with torch.no_grad():
                 iterator = self.official["generate"](
@@ -228,12 +233,14 @@ class Emu35Adapter:
                     None,
                     False,
                 )
-                for event in iterator:
-                    decoded_text, decoded_image = self._decode_generation_event(event)
+                for event_index, event in enumerate(iterator):
+                    decoded_text, decoded_images, debug = self._decode_generation_event(event)
+                    debug["event_index"] = event_index
+                    event_debug.append(debug)
                     if decoded_text:
                         text_parts.append(decoded_text)
-                    if decoded_image is not None:
-                        image = decoded_image
+                    if decoded_images:
+                        images_out.extend(decoded_images)
         except AttributeError as exc:
             missing_field = _missing_attribute_name(exc)
             if missing_field and "SimpleNamespace" in str(exc):
@@ -246,11 +253,33 @@ class Emu35Adapter:
             raise RuntimeError(f"Emu3.5 generation failed: {exc}") from exc
 
         raw_text = "".join(text_parts).strip()
+        resized_images = [resize_pad_image(image, self.config.image_size) for image in images_out]
+        image = resized_images[0] if resized_images else None
+        logger.info(
+            "Emu3.5 generation produced %d event(s), %d text chunk(s), and %d image(s).",
+            len(event_debug),
+            len([part for part in text_parts if part]),
+            len(resized_images),
+        )
+        if event_debug:
+            logger.debug("Emu3.5 generation event summaries: %s", event_debug)
+        if not resized_images:
+            logger.warning("No PIL image was found in Emu3.5 generation events.")
         return {
             "operation_type": self.parse_operation_type(raw_text),
-            "image": resize_pad_image(image, self.config.image_size) if image is not None else None,
+            "image": image,
+            "images": resized_images,
             "raw_text": raw_text,
-            "metadata": {"gpu": get_gpu_info(), "num_prompt_images": len(images)},
+            "raw_text_missing": not bool(raw_text),
+            "metadata": {
+                "gpu": get_gpu_info(),
+                "num_prompt_images": len(images),
+                "num_generation_events": len(event_debug),
+                "num_text_chunks": len([part for part in text_parts if part]),
+                "num_generated_images": len(resized_images),
+                "event_summaries": event_debug if getattr(runtime_cfg, "save_debug_events", True) else [],
+            },
+            "emu35_events_debug": event_debug,
         }
 
     def parse_operation_type(self, raw_text: str) -> str:
@@ -298,39 +327,125 @@ class Emu35Adapter:
             ids["EOS"] = int(getattr(self.tokenizer, "eos_token_id", ids["PAD"]))
         return ids
 
-    def _decode_generation_event(self, event: Any) -> tuple[str, Image.Image | None]:
-        if isinstance(event, dict):
-            if event.get("type") == "text":
-                return str(event.get("text", "")), None
-            if event.get("type") == "image" and event.get("image") is not None:
-                mm_out = self.official["multimodal_decode"](event["image"], self.tokenizer, self.vq_model)
-                return self._extract_text_image_from_mm(mm_out)
-            return "", None
+    def _decode_generation_event(self, event: Any) -> tuple[str, list[Image.Image], dict[str, Any]]:
+        raw_text, raw_images, raw_meta = extract_text_and_images_from_emu35_event(event)
+        text_parts = [raw_text] if raw_text else []
+        images = list(raw_images)
+        decode_attempts: list[dict[str, Any]] = []
 
-        result = self.tokenizer.decode(event, skip_special_tokens=False)
-        mm_out = self.official["multimodal_decode"](result, self.tokenizer, self.vq_model)
-        return self._extract_text_image_from_mm(mm_out)
+        for source, text in self._candidate_multimodal_strings(event):
+            if not self._looks_like_multimodal_payload(text):
+                continue
+            decoded_text, decoded_images, decoded_meta = self._decode_multimodal_string(text)
+            decode_attempts.append({"source": source, **decoded_meta})
+            if decoded_text:
+                text_parts.append(decoded_text)
+            if decoded_images:
+                images.extend(decoded_images)
 
-    def _extract_text_image_from_mm(self, mm_out: Any) -> tuple[str, Image.Image | None]:
+        token_text = self._decode_token_ids_to_text(event)
+        if token_text:
+            token_summary = summarize_emu35_event(token_text)
+            decoded_text, decoded_images, decoded_meta = self._decode_multimodal_string(token_text)
+            decode_attempts.append(
+                {
+                    "source": "token_ids",
+                    "token_text_summary": token_summary,
+                    **decoded_meta,
+                }
+            )
+            if decoded_text:
+                text_parts.append(decoded_text)
+            if decoded_images:
+                images.extend(decoded_images)
+
+        images = _dedupe_images_by_identity(images)
+        text = "".join(part for part in text_parts if part).strip()
+        debug = {
+            "raw_event_summary": summarize_emu35_event(event),
+            "raw_extraction": raw_meta,
+            "decode_attempts": decode_attempts,
+            "text_length": len(text),
+            "num_images": len(images),
+            "image_summaries": [summarize_emu35_event(image) for image in images],
+        }
+        return text, images, debug
+
+    def _decode_multimodal_string(self, text: str) -> tuple[str, list[Image.Image], dict[str, Any]]:
+        metadata: dict[str, Any] = {
+            "input_text_length": len(text),
+            "input_has_visual_tokens": _looks_like_visual_token_text(text),
+            "multimodal_decode_called": False,
+            "decode_image_called": False,
+        }
         text_parts: list[str] = []
-        image: Image.Image | None = None
-        if isinstance(mm_out, list):
-            for item in mm_out:
-                if isinstance(item, Image.Image):
-                    image = item
-                elif isinstance(item, str):
-                    text_parts.append(item)
-                elif isinstance(item, (tuple, list)) and item:
-                    value = item[-1]
-                    if isinstance(value, Image.Image):
-                        image = value
-                    elif isinstance(value, str):
-                        text_parts.append(value)
-        elif isinstance(mm_out, Image.Image):
-            image = mm_out
-        elif isinstance(mm_out, str):
-            text_parts.append(mm_out)
-        return "".join(text_parts), image
+        images: list[Image.Image] = []
+
+        try:
+            metadata["multimodal_decode_called"] = True
+            mm_out = self.official["multimodal_decode"](text, self.tokenizer, self.vq_model)
+            decoded_text, decoded_images, decoded_meta = extract_text_and_images_from_emu35_event(mm_out)
+            metadata["multimodal_decode_summary"] = summarize_emu35_event(mm_out)
+            metadata["multimodal_decode_extraction"] = decoded_meta
+            if decoded_text:
+                text_parts.append(decoded_text)
+            if decoded_images:
+                images.extend(decoded_images)
+        except Exception as exc:
+            metadata["multimodal_decode_error"] = f"{type(exc).__name__}: {exc}"
+
+        if not images and _looks_like_visual_token_text(text):
+            decode_image = self.official.get("decode_image")
+            if decode_image is not None:
+                try:
+                    metadata["decode_image_called"] = True
+                    image = decode_image(text, self.tokenizer, self.vq_model)
+                    if isinstance(image, Image.Image):
+                        images.append(image)
+                    metadata["decode_image_summary"] = summarize_emu35_event(image)
+                except Exception as exc:
+                    metadata["decode_image_error"] = f"{type(exc).__name__}: {exc}"
+
+        metadata["text_length"] = len("".join(text_parts).strip())
+        metadata["num_images"] = len(images)
+        return "".join(text_parts).strip(), images, metadata
+
+    def _candidate_multimodal_strings(self, event: Any) -> list[tuple[str, str]]:
+        candidates: list[tuple[str, str]] = []
+
+        def walk(value: Any, path: str, depth: int = 0) -> None:
+            if depth > 4:
+                return
+            if isinstance(value, str):
+                candidates.append((path, value))
+                return
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    walk(item, f"{path}.{key}", depth + 1)
+                return
+            if isinstance(value, (list, tuple)):
+                for index, item in enumerate(value):
+                    walk(item, f"{path}[{index}]", depth + 1)
+
+        walk(event, "event")
+        return candidates
+
+    def _looks_like_multimodal_payload(self, text: str) -> bool:
+        token_names = ("boi_token", "eoi_token", "bog_token", "eog_token", "boc_token", "eoc_token")
+        known_tokens = [getattr(self.tokenizer, name, None) for name in token_names]
+        if any(token and token in text for token in known_tokens):
+            return True
+        return _looks_like_visual_token_text(text)
+
+    def _decode_token_ids_to_text(self, event: Any) -> str:
+        token_ids = _extract_token_ids(event)
+        if not token_ids:
+            return ""
+        try:
+            return self.tokenizer.decode(token_ids, skip_special_tokens=False)
+        except Exception as exc:
+            logger.warning("Failed to decode Emu3.5 token ids: %s", exc)
+            return ""
 
     def _prepare_import_path(self) -> None:
         repo_path = resolve_project_path(self.config.emu_repo_path)
@@ -430,7 +545,7 @@ class Emu35Adapter:
 
     def _import_official_utilities(self) -> dict[str, Any] | None:
         try:
-            from src.utils.generation_utils import generate, multimodal_decode
+            from src.utils.generation_utils import decode_image, generate, multimodal_decode
             from src.utils.input_utils import build_image
             from src.utils.model_utils import build_emu3p5
         except Exception:
@@ -440,6 +555,7 @@ class Emu35Adapter:
             "build_image": build_image,
             "generate": generate,
             "multimodal_decode": multimodal_decode,
+            "decode_image": decode_image,
         }
 
     def _maybe_add_supported_kwarg(self, fn: Any, kwargs: dict[str, Any], name: str, value: Any) -> dict[str, Any]:
@@ -506,6 +622,229 @@ class Emu35Adapter:
     def _require_loaded(self) -> None:
         if self.model is None or self.tokenizer is None or self.vq_model is None:
             raise RuntimeError("Emu35Adapter.load_model() must be called before generation.")
+
+
+def extract_text_and_images_from_emu35_event(event: Any) -> tuple[str, list[Image.Image], dict[str, Any]]:
+    """Recursively extract text chunks and PIL images from an Emu3.5 event-like object."""
+
+    text_parts: list[str] = []
+    images: list[Image.Image] = []
+    visited: set[int] = set()
+
+    def walk(value: Any, path: str, depth: int = 0) -> None:
+        if depth > 8:
+            return
+        if value is None:
+            return
+        value_id = id(value)
+        if value_id in visited:
+            return
+        if isinstance(value, (dict, list, tuple, Image.Image)) or hasattr(value, "__dict__"):
+            visited.add(value_id)
+        if isinstance(value, Image.Image):
+            images.append(value)
+            return
+        if isinstance(value, str):
+            if not _looks_like_visual_token_text(value):
+                text_parts.append(value)
+            return
+        if isinstance(value, bytes):
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key) == "type":
+                    continue
+                walk(item, f"{path}.{key}", depth + 1)
+            return
+        if isinstance(value, (list, tuple)):
+            if (
+                len(value) == 2
+                and isinstance(value[0], str)
+                and value[0] in {"text", "image", "global_cot", "image_cot", "broken_image", "final_ids"}
+            ):
+                walk(value[1], f"{path}.{value[0]}", depth + 1)
+                return
+            if _looks_like_token_id_container(value):
+                return
+            for item in value:
+                walk(item, path, depth + 1)
+            return
+        if _looks_like_tensor_or_array(value):
+            return
+        if hasattr(value, "__dict__"):
+            for item in vars(value).values():
+                walk(item, path, depth + 1)
+
+    walk(event, "event")
+    images = _dedupe_images_by_identity(images)
+    text = "".join(text_parts)
+    metadata = {
+        "event_summary": summarize_emu35_event(event),
+        "num_text_chunks": len([part for part in text_parts if part]),
+        "text_length": len(text),
+        "num_images": len(images),
+        "images_found": bool(images),
+    }
+    return text, images, metadata
+
+
+def summarize_emu35_event(event: Any) -> dict[str, Any]:
+    """Return a JSON-safe shape summary for an Emu3.5 generation event."""
+
+    return _summarize_value(event, max_depth=3)
+
+
+def _summarize_value(value: Any, max_depth: int, depth: int = 0) -> dict[str, Any]:
+    summary: dict[str, Any] = {"type": type(value).__name__}
+    if value is None:
+        return summary
+    if isinstance(value, Image.Image):
+        summary.update({"is_image": True, "mode": value.mode, "size": list(value.size), "num_images_found": 1})
+        return summary
+    if isinstance(value, str):
+        summary.update(
+            {
+                "text_length": len(value),
+                "text_preview": _safe_preview(value),
+                "looks_like_visual_tokens": _looks_like_visual_token_text(value),
+                "num_images_found": 0,
+            }
+        )
+        return summary
+    if isinstance(value, bytes):
+        summary.update({"byte_length": len(value), "num_images_found": 0})
+        return summary
+    if _looks_like_tensor_or_array(value):
+        shape = getattr(value, "shape", None)
+        dtype = getattr(value, "dtype", None)
+        summary.update({"shape": _json_safe(shape), "dtype": str(dtype) if dtype is not None else None, "num_images_found": 0})
+        return summary
+    if depth >= max_depth:
+        summary["truncated"] = True
+        summary["num_images_found"] = 0
+        return summary
+    if isinstance(value, dict):
+        child_summaries = {str(key): _summarize_value(item, max_depth, depth + 1) for key, item in value.items()}
+        summary.update(
+            {
+                "keys": [str(key) for key in value.keys()],
+                "values": child_summaries,
+                "num_images_found": sum(int(item.get("num_images_found", 0)) for item in child_summaries.values()),
+            }
+        )
+        return summary
+    if isinstance(value, (list, tuple)):
+        children = [_summarize_value(item, max_depth, depth + 1) for item in list(value)[:12]]
+        summary.update(
+            {
+                "length": len(value),
+                "element_types": [type(item).__name__ for item in list(value)[:12]],
+                "items": children,
+                "truncated": len(value) > 12,
+                "num_images_found": sum(int(item.get("num_images_found", 0)) for item in children),
+            }
+        )
+        return summary
+    if hasattr(value, "__dict__"):
+        raw_attrs = vars(value)
+        child_summaries = {str(key): _summarize_value(item, max_depth, depth + 1) for key, item in raw_attrs.items()}
+        summary.update(
+            {
+                "attributes": sorted(str(key) for key in raw_attrs.keys()),
+                "attribute_values": child_summaries,
+                "num_images_found": sum(int(item.get("num_images_found", 0)) for item in child_summaries.values()),
+            }
+        )
+        return summary
+    summary["repr"] = _safe_preview(repr(value))
+    summary["num_images_found"] = 0
+    return summary
+
+
+def _dedupe_images_by_identity(images: list[Image.Image]) -> list[Image.Image]:
+    seen: set[int] = set()
+    deduped: list[Image.Image] = []
+    for image in images:
+        image_id = id(image)
+        if image_id in seen:
+            continue
+        seen.add(image_id)
+        deduped.append(image)
+    return deduped
+
+
+def _extract_token_ids(event: Any) -> list[int]:
+    if isinstance(event, dict):
+        for key in ("ids", "token_ids", "tokens", "output_ids"):
+            if key in event:
+                ids = _flatten_token_ids(event[key])
+                if ids:
+                    return ids
+        return []
+    return _flatten_token_ids(event)
+
+
+def _flatten_token_ids(value: Any, max_items: int = 200000) -> list[int]:
+    if value is None or isinstance(value, (str, bytes, Image.Image, dict)):
+        return []
+    if _looks_like_tensor_or_array(value) and hasattr(value, "tolist"):
+        try:
+            value = value.tolist()
+        except Exception:
+            return []
+    if isinstance(value, int):
+        return [int(value)]
+    if isinstance(value, float):
+        return [int(value)] if value.is_integer() else []
+    if isinstance(value, (list, tuple)):
+        flat: list[int] = []
+        for item in value:
+            if len(flat) >= max_items:
+                break
+            child = _flatten_token_ids(item, max_items=max_items - len(flat))
+            if not child:
+                if item is not None:
+                    return []
+                continue
+            flat.extend(child)
+        return flat
+    return []
+
+
+def _looks_like_token_id_container(value: Any) -> bool:
+    return bool(_flatten_token_ids(value, max_items=64))
+
+
+def _looks_like_tensor_or_array(value: Any) -> bool:
+    module = getattr(type(value), "__module__", "")
+    name = type(value).__name__
+    return (
+        hasattr(value, "shape")
+        and hasattr(value, "dtype")
+        and ("numpy" in module or "torch" in module or name in {"Tensor", "ndarray"})
+    )
+
+
+def _looks_like_visual_token_text(text: str) -> bool:
+    return "<|visual token" in text or "<|image" in text or "<|boi|>" in text or "<|eoi|>" in text
+
+
+def _safe_preview(text: str, limit: int = 240) -> str:
+    text = text.replace("\n", "\\n")
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}...<truncated {len(text) - limit} chars>"
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    try:
+        return list(value)
+    except Exception:
+        return str(value)
 
 
 def parse_operation_type(raw_text: str) -> str:

@@ -102,6 +102,7 @@ class GenerationConfig:
     stream: bool = False
     streaming: bool = False
     use_differential_sampling: bool = True
+    save_debug_events: bool = True
 
 
 @dataclass

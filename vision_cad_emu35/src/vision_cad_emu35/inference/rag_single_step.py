@@ -60,11 +60,39 @@ def run_rag_single_step(
     (out / "operation_type.txt").write_text(result.get("operation_type", ""), encoding="utf-8")
     (out / "prompt.txt").write_text(prompt.prompt_text, encoding="utf-8")
     (out / "retrieved_examples.json").write_text(json.dumps(prompt.retrieved_examples, indent=2, default=str), encoding="utf-8")
-    if result.get("image") is not None:
-        save_image(result["image"], out / "overlayed_all.png")
+
+    generated_images = list(result.get("images") or [])
+    if not generated_images and result.get("image") is not None:
+        generated_images = [result["image"]]
+    generated_image_paths: list[str] = []
+    image_path: str | None = None
+    if generated_images:
+        overlay_path = out / "overlayed_all.png"
+        save_image(generated_images[0], overlay_path)
+        image_path = str(overlay_path)
+        generated_dir = out / "generated_images"
+        for index, image in enumerate(generated_images):
+            target = generated_dir / f"image_{index:03d}.png"
+            save_image(image, target)
+            generated_image_paths.append(str(target))
+
+    debug_events = result.get("emu35_events_debug") or result.get("metadata", {}).get("event_summaries") or []
+    debug_events_path: str | None = None
+    if getattr(config.generation, "save_debug_events", True) or not generated_images:
+        debug_path = out / "emu35_events_debug.json"
+        debug_payload = {
+            "num_generation_events": result.get("metadata", {}).get("num_generation_events", len(debug_events)),
+            "num_generated_images": len(generated_images),
+            "raw_text_missing": result.get("raw_text_missing", not bool(result.get("raw_text", ""))),
+            "events": debug_events,
+        }
+        debug_path.write_text(json.dumps(debug_payload, indent=2, default=str), encoding="utf-8")
+        debug_events_path = str(debug_path)
+
     response = {
         "operation_type": result.get("operation_type"),
         "raw_text": result.get("raw_text", ""),
+        "raw_text_missing": result.get("raw_text_missing", not bool(result.get("raw_text", ""))),
         "metadata": result.get("metadata", {}),
         "latency_seconds": latency,
         "zero_shot": zero_shot,
@@ -72,6 +100,21 @@ def run_rag_single_step(
         "kb_dir": str(retriever.kb_dir),
         "num_retrieved": len(retrieved),
         "image_roles": prompt.image_roles,
+        "image_path": image_path,
+        "num_generated_images": len(generated_images),
+        "generated_image_paths": generated_image_paths,
+        "debug_events_path": debug_events_path,
+        "image_missing": not bool(generated_images),
     }
+    if not generated_images:
+        response.update(
+            {
+                "image_missing_reason": "No PIL image was found in Emu3.5 generation events.",
+            }
+        )
     (out / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
-    return {**response, "image": result.get("image"), "retrieved_examples": prompt.retrieved_examples, "output_dir": str(out)}
+    if generated_images:
+        print(f"[INFO] Saved generated preview image: {image_path}")
+    else:
+        print(f"[WARNING] No generated image found in Emu3.5 output. Debug events saved to: {debug_events_path}")
+    return {**response, "image": generated_images[0] if generated_images else None, "retrieved_examples": prompt.retrieved_examples, "output_dir": str(out)}
