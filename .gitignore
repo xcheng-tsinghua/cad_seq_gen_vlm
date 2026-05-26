@@ -16,3 +16,4 @@ pretrained_lm/*
 !pretrained_lm/.gitkeep
 
 vision_cad_emu35/.venv/
+vision_cad_emu35/third_party/
