@@ -17,6 +17,7 @@ from vision_cad_emu35.rag.prompt_builder import RagPromptBuilder
 from vision_cad_emu35.rag.retriever import RagRetriever
 from vision_cad_emu35.utils.gpu import get_gpu_info
 from vision_cad_emu35.utils.image_io import image_to_base64, save_image
+from vision_cad_emu35.utils.runtime_env import normalize_thread_env
 
 
 def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
@@ -45,6 +46,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
     @app.on_event("startup")
     async def _startup() -> None:
         try:
+            normalize_thread_env()
             ensure_default_local_model_paths(config.model)
             validate_local_model_paths(config.model)
             adapter = Emu35Adapter(config.model)

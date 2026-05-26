@@ -9,6 +9,7 @@ model:
   trust_remote_code: true
   image_size: 512
   precision: "bf16"
+  attn_implementation: "eager"
 
 data:
   dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import importlib
-import platform
+import os
 import sys
 from typing import Any
 
@@ -9,6 +9,7 @@ from typing import Any
 def main() -> None:
     print(f"Python version: {sys.version.split()[0]}")
     print(f"Python executable: {sys.executable}")
+    print_thread_env_status()
     torch = import_torch()
     if torch is None:
         warn("torch is not installed. Install the Blackwell CUDA 12.8 wheel with requirements-blackwell-cu128.txt.")
@@ -76,6 +77,23 @@ def print_optional_imports() -> None:
             warn(f"{name} import status: failed ({exc}); this is optional and standard PyTorch inference will be used.")
 
 
+def print_thread_env_status() -> None:
+    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        value = os.environ.get(name)
+        print(f"{name}: {value if value is not None else '<unset>'}")
+        if not is_positive_integer(value):
+            warn(f"{name} is not a positive integer. Runtime scripts will normalize invalid values to 8 before model load.")
+
+
+def is_positive_integer(value: str | None) -> bool:
+    if value is None:
+        return False
+    try:
+        return int(str(value).strip()) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def parse_cuda_version(version: str | None) -> tuple[int, int]:
     if not version:
         return (0, 0)
@@ -92,4 +110,3 @@ def warn(message: str) -> None:
 
 if __name__ == "__main__":
     main()
-
