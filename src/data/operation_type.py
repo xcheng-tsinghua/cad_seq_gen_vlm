@@ -18,7 +18,7 @@ def get_exact_operation_type_from_param(param_json_path: str | Path) -> str:
     if "construct_type" in param_dict:
         if param_dict["construct_type"] in ("NEW", "ADD"):
             type_str = type_str + "_add"
-        else:
+        elif param_dict["construct_type"] in ("REMOVE", "INTERSECT"):
             type_str = type_str + "_cut"
 
     if "draft_angle" in param_dict and param_dict["draft_angle"] is not None:
