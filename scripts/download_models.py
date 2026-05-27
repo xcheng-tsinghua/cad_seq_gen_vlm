@@ -15,7 +15,7 @@ from typing import Any, Callable
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.model_paths import (
+from model_paths import (
     DEFAULT_MAIN_HF_REPO_ID,
     DEFAULT_MAIN_LOCAL_ID,
     DEFAULT_MAIN_MODELSCOPE_ID,

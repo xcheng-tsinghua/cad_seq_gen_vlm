@@ -8,9 +8,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.config import load_config
-from vision_cad_emu35.rag.build_kb import build_kb_from_dataset
-from vision_cad_emu35.utils.logging import setup_logging
+from config import load_config
+from rag.build_kb import build_kb_from_dataset
+from utils.logging import setup_logging
 
 
 def main() -> None:

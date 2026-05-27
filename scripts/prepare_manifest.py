@@ -8,12 +8,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.data.manifest import materialize_preprocessed_cache, write_manifest_bundle
-from vision_cad_emu35.data.scan_dataset import scan_dataset
+from data.manifest import materialize_preprocessed_cache, write_manifest_bundle
+from data.scan_dataset import scan_dataset
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare vision_cad_emu35 manifests.")
+    parser = argparse.ArgumentParser(description="Prepare CAD sequence RAG manifests.")
     parser.add_argument("--dataset-root", required=True)
     parser.add_argument("--manifest-dir", required=True)
     parser.add_argument("--add-stop-samples", action="store_true")

@@ -6,9 +6,9 @@ from typing import Any
 
 from PIL import Image
 
-from vision_cad_emu35.config import GenerationConfig
-from vision_cad_emu35.models.emu35_adapter import Emu35Adapter
-from vision_cad_emu35.utils.image_io import save_image
+from config import GenerationConfig
+from models.emu35_adapter import Emu35Adapter
+from utils.image_io import save_image
 
 
 def generate_multimodal(

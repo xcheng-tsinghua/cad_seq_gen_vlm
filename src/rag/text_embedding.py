@@ -4,7 +4,7 @@ import hashlib
 
 import numpy as np
 
-from vision_cad_emu35.rag.image_embedding import l2_normalize
+from rag.image_embedding import l2_normalize
 
 
 def simple_text_embedding(text: str, dim: int = 256) -> np.ndarray:

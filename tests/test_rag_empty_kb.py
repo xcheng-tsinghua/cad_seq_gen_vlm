@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from vision_cad_emu35.config import RagConfig
-from vision_cad_emu35.rag.prompt_builder import RagPromptBuilder
-from vision_cad_emu35.rag.retriever import RagRetriever
+from config import RagConfig
+from rag.prompt_builder import RagPromptBuilder
+from rag.retriever import RagRetriever
 
 
 def test_missing_kb_dir_is_empty(tmp_path):

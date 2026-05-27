@@ -1,4 +1,4 @@
-# vision_cad_emu35
+# cad_seq_gen_vlm
 
 Frozen Emu3.5 RAG system for vision-based CAD modeling step reverse generation.
 
@@ -11,14 +11,14 @@ The system supports an empty knowledge base. If no KB exists, the API and web de
 
 ## Project Layout
 
-The repository now runs directly from the `cad_seq_gen_vlm` root, not from a nested `vision_cad_emu35/` project directory:
+The repository now runs directly from the `cad_seq_gen_vlm` root, and the Python modules are flattened directly under `src/`:
 
 ```text
 cad_seq_gen_vlm/
   configs/                 Runtime YAML configs.
   examples/                Small checked-in demo images.
   scripts/                 CLI entry points for download, checks, KB build, API, and demo.
-  src/vision_cad_emu35/    Python package source.
+  src/                    Python modules and top-level packages.
   tests/                   Unit tests.
   third_party/Emu3.5/      Local official Emu3.5 runtime checkout, ignored by Git.
 ```
@@ -145,7 +145,7 @@ Runtime loading always uses local paths by default. The adapter does not downloa
 
 ## Install Official Emu3.5 Runtime Source Code
 
-This project downloads Emu3.5 model weights, but it also needs the official Emu3.5 source code at runtime. [src/vision_cad_emu35/models/emu35_adapter.py](src/vision_cad_emu35/models/emu35_adapter.py) imports official utilities such as `build_emu3p5`, `build_image`, `generate`, and `multimodal_decode`.
+This project downloads Emu3.5 model weights, but it also needs the official Emu3.5 source code at runtime. [src/models/emu35_adapter.py](src/models/emu35_adapter.py) imports official utilities such as `build_emu3p5`, `build_image`, `generate`, and `multimodal_decode`.
 
 Use this portability-oriented layout:
 
@@ -531,11 +531,11 @@ Those cache warnings are from upstream API drift and should not block a working 
 
 ## RAG Components
 
-- `rag/image_embedding.py`: CLIP if available, simple CPU embedding by default.
-- `rag/vector_store.py`: pure NumPy cosine-similarity vector store.
-- `rag/retriever.py`: empty-KB-safe retrieval with optional operation type filtering.
-- `rag/prompt_builder.py`: multimodal prompt packing with configurable retrieved example images.
-- `models/emu35_adapter.py`: frozen Emu3.5 inference-only adapter.
+- `src/rag/image_embedding.py`: CLIP if available, simple CPU embedding by default.
+- `src/rag/vector_store.py`: pure NumPy cosine-similarity vector store.
+- `src/rag/retriever.py`: empty-KB-safe retrieval with optional operation type filtering.
+- `src/rag/prompt_builder.py`: multimodal prompt packing with configurable retrieved example images.
+- `src/models/emu35_adapter.py`: frozen Emu3.5 inference-only adapter.
 
 ## Not a Fine-Tuning Project
 

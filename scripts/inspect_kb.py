@@ -9,9 +9,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.config import load_config
-from vision_cad_emu35.rag.retriever import RagRetriever
-from vision_cad_emu35.utils.jsonl import read_jsonl
+from config import load_config
+from rag.retriever import RagRetriever
+from utils.jsonl import read_jsonl
 
 
 def main() -> None:

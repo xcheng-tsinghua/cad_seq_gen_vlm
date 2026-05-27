@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from vision_cad_emu35.rag.image_embedding import l2_normalize
+from rag.image_embedding import l2_normalize
 
 
 class NumpyVectorStore:

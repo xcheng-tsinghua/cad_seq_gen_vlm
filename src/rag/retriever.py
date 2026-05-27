@@ -5,11 +5,11 @@ from typing import Any
 
 from PIL import Image
 
-from vision_cad_emu35.config import RagConfig
-from vision_cad_emu35.rag.image_embedding import create_image_embedder
-from vision_cad_emu35.rag.kb_schema import KBItem, item_from_dict
-from vision_cad_emu35.rag.vector_store import NumpyVectorStore
-from vision_cad_emu35.utils.jsonl import read_jsonl
+from config import RagConfig
+from rag.image_embedding import create_image_embedder
+from rag.kb_schema import KBItem, item_from_dict
+from rag.vector_store import NumpyVectorStore
+from utils.jsonl import read_jsonl
 
 
 class RagRetriever:

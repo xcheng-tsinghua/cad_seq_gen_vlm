@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from vision_cad_emu35.model_paths import DEFAULT_MODEL_ROOT, default_local_model_paths
+from model_paths import DEFAULT_MODEL_ROOT, default_local_model_paths
 
 
 _DEFAULT_MODEL_PATHS = default_local_model_paths(DEFAULT_MODEL_ROOT)
@@ -172,7 +172,7 @@ def find_project_root(start: str | Path | None = None) -> Path:
     for candidate in (current, *current.parents):
         if (candidate / "pyproject.toml").exists():
             return candidate
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[1]
 
 
 def resolve_project_path(path_like: str | Path | None) -> Path | None:

@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from vision_cad_emu35.utils.image_io import load_image_rgb
+from utils.image_io import load_image_rgb
 
 
 def l2_normalize(vector: np.ndarray) -> np.ndarray:

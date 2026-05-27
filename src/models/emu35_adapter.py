@@ -14,12 +14,12 @@ from typing import Any, Iterator
 
 from PIL import Image
 
-from vision_cad_emu35.config import ALLOWED_ATTN_IMPLEMENTATIONS, GenerationConfig, ModelConfig, resolve_project_path
-from vision_cad_emu35.model_paths import DOWNLOAD_COMMAND, ensure_default_local_model_paths, validate_local_model_paths
-from vision_cad_emu35.models.emu35_compat import apply_emu3_tokenizer_compat, is_special_tokens_set_error
-from vision_cad_emu35.utils.gpu import get_gpu_info
-from vision_cad_emu35.utils.image_io import resize_pad_image
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from config import ALLOWED_ATTN_IMPLEMENTATIONS, GenerationConfig, ModelConfig, resolve_project_path
+from model_paths import DOWNLOAD_COMMAND, ensure_default_local_model_paths, validate_local_model_paths
+from models.emu35_compat import apply_emu3_tokenizer_compat, is_special_tokens_set_error
+from utils.gpu import get_gpu_info
+from utils.image_io import resize_pad_image
+from utils.runtime_env import normalize_thread_env
 
 
 logger = logging.getLogger(__name__)

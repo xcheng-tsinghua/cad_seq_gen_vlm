@@ -25,7 +25,7 @@ _bootstrap_thread_env()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.utils.runtime_env import is_positive_int_env, normalize_thread_env
+from utils.runtime_env import is_positive_int_env, normalize_thread_env
 
 
 def main() -> None:

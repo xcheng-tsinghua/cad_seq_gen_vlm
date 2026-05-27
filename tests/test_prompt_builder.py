@@ -4,8 +4,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from vision_cad_emu35.config import RagConfig
-from vision_cad_emu35.rag.prompt_builder import RagPromptBuilder
+from config import RagConfig
+from rag.prompt_builder import RagPromptBuilder
 
 
 def _image(path: Path, color: tuple[int, int, int]) -> str:

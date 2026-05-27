@@ -8,8 +8,8 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from vision_cad_emu35.config import ModelConfig, resolve_project_path
-from vision_cad_emu35.model_paths import ensure_default_local_model_paths
+from config import ModelConfig, resolve_project_path
+from model_paths import ensure_default_local_model_paths
 
 
 UNSAFE_SPECIAL_TOKENS_SET_RE = re.compile(r"self\.special_tokens_set(?!\s*=)")
@@ -202,7 +202,7 @@ def patch_emu3_tokenizer_file(path: str | Path) -> dict[str, bool]:
         updated = _insert_tokenizer_helper(updated)
     patch_applied = updated != text
     if patch_applied:
-        backup_path = source_path.with_name(source_path.name + ".vision_cad_emu35_backup")
+        backup_path = source_path.with_name(source_path.name + ".cad_seq_gen_vlm_backup")
         if not backup_path.exists():
             shutil.copy2(source_path, backup_path)
         source_path.write_text(updated, encoding="utf-8")

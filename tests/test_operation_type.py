@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from vision_cad_emu35.data.operation_type import get_exact_operation_type_from_param
+from data.operation_type import get_exact_operation_type_from_param
 
 
 def _write_param(tmp_path, payload):

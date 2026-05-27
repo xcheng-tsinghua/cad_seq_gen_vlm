@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from vision_cad_emu35.data.manifest import deterministic_split
-from vision_cad_emu35.data.scan_dataset import scan_dataset
+from data.manifest import deterministic_split
+from data.scan_dataset import scan_dataset
 
 
 def _png(path: Path, color=(0, 0, 0)):

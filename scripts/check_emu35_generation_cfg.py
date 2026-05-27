@@ -26,13 +26,13 @@ _bootstrap_thread_env()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.config import AppConfig, load_config, resolve_project_path
-from vision_cad_emu35.models.emu35_adapter import (
+from config import AppConfig, load_config, resolve_project_path
+from models.emu35_adapter import (
     EMU35_REQUIRED_CFG_FIELDS,
     build_emu35_generation_cfg,
     inspect_generation_utils_cfg_fields,
 )
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from utils.runtime_env import normalize_thread_env
 
 
 def main() -> int:

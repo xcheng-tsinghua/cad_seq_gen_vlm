@@ -5,13 +5,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from vision_cad_emu35.config import AppConfig
-from vision_cad_emu35.model_paths import apply_model_root_override, ensure_default_local_model_paths, validate_local_model_paths
-from vision_cad_emu35.models.emu35_adapter import Emu35Adapter
-from vision_cad_emu35.rag.prompt_builder import RagPromptBuilder
-from vision_cad_emu35.rag.retriever import RagRetriever
-from vision_cad_emu35.utils.image_io import load_image_rgb, save_image
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from config import AppConfig
+from model_paths import apply_model_root_override, ensure_default_local_model_paths, validate_local_model_paths
+from models.emu35_adapter import Emu35Adapter
+from rag.prompt_builder import RagPromptBuilder
+from rag.retriever import RagRetriever
+from utils.image_io import load_image_rgb, save_image
+from utils.runtime_env import normalize_thread_env
 
 
 def load_frozen_adapter(config: AppConfig) -> Emu35Adapter:

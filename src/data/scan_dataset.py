@@ -6,8 +6,8 @@ from pathlib import Path
 import re
 from typing import Any
 
-from vision_cad_emu35.data.operation_type import get_exact_operation_type_from_param
-from vision_cad_emu35.utils.image_io import validate_image_file
+from data.operation_type import get_exact_operation_type_from_param
+from utils.image_io import validate_image_file
 
 
 REQUIRED_STEP_FILES = (

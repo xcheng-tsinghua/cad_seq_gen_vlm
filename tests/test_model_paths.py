@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from vision_cad_emu35.config import AppConfig, find_project_root, resolve_project_path
-from vision_cad_emu35.model_paths import apply_model_root_override, validate_local_model_paths
-from vision_cad_emu35.models.emu35_adapter import build_emu35_generation_cfg
-from vision_cad_emu35.models.emu35_compat import patch_emu3_tokenizer_file
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from config import AppConfig, find_project_root, resolve_project_path
+from model_paths import apply_model_root_override, validate_local_model_paths
+from models.emu35_adapter import build_emu35_generation_cfg
+from models.emu35_compat import patch_emu3_tokenizer_file
+from utils.runtime_env import normalize_thread_env
 
 
 def test_model_root_override_derives_all_local_paths():

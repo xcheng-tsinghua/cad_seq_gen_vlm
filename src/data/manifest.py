@@ -7,9 +7,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
 
-from vision_cad_emu35.data.scan_dataset import DatasetScanResult
-from vision_cad_emu35.utils.image_io import load_and_resize, save_image
-from vision_cad_emu35.utils.jsonl import write_jsonl
+from data.scan_dataset import DatasetScanResult
+from utils.image_io import load_and_resize, save_image
+from utils.jsonl import write_jsonl
 
 
 def deterministic_split(
@@ -128,6 +128,6 @@ def materialize_preprocessed_cache(
 
 
 def load_manifest(path: str | Path) -> list[dict]:
-    from vision_cad_emu35.utils.jsonl import read_jsonl
+    from utils.jsonl import read_jsonl
 
     return list(read_jsonl(path))

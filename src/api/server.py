@@ -4,20 +4,25 @@ import io
 import json
 import time
 import uuid
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
-from vision_cad_emu35 import __version__
-from vision_cad_emu35.config import AppConfig
-from vision_cad_emu35.model_paths import ensure_default_local_model_paths, validate_local_model_paths
-from vision_cad_emu35.models.emu35_adapter import Emu35Adapter
-from vision_cad_emu35.rag.prompt_builder import RagPromptBuilder
-from vision_cad_emu35.rag.retriever import RagRetriever
-from vision_cad_emu35.utils.gpu import get_gpu_info
-from vision_cad_emu35.utils.image_io import image_to_base64, save_image
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from config import AppConfig
+from model_paths import ensure_default_local_model_paths, validate_local_model_paths
+from models.emu35_adapter import Emu35Adapter
+from rag.prompt_builder import RagPromptBuilder
+from rag.retriever import RagRetriever
+from utils.gpu import get_gpu_info
+from utils.image_io import image_to_base64, save_image
+from utils.runtime_env import normalize_thread_env
+
+try:
+    APP_VERSION = version("vision-cad-emu35")
+except PackageNotFoundError:
+    APP_VERSION = "0.1.0"
 
 
 def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
@@ -28,7 +33,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
     except ImportError as exc:
         raise ImportError("fastapi and uvicorn are required for the API server.") from exc
 
-    app = FastAPI(title="vision_cad_emu35_rag", version=__version__)
+    app = FastAPI(title="cad_seq_gen_vlm_rag", version=APP_VERSION)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.api.cors_origins,
@@ -63,7 +68,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             "model_loaded": app.state.adapter is not None,
             "model_error": app.state.model_error,
             **retriever.status(),
-            "version": __version__,
+            "version": APP_VERSION,
             "gpu": get_gpu_info(),
         }
 

@@ -24,10 +24,10 @@ _bootstrap_thread_env()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.config import AppConfig, load_config, resolve_project_path
-from vision_cad_emu35.model_paths import apply_model_root_override, ensure_default_local_model_paths
-from vision_cad_emu35.models.emu35_compat import apply_emu3_tokenizer_compat, is_special_tokens_set_error
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from config import AppConfig, load_config, resolve_project_path
+from model_paths import apply_model_root_override, ensure_default_local_model_paths
+from models.emu35_compat import apply_emu3_tokenizer_compat, is_special_tokens_set_error
+from utils.runtime_env import normalize_thread_env
 
 
 def main() -> int:

@@ -7,13 +7,13 @@ from typing import Any
 
 import numpy as np
 
-from vision_cad_emu35.config import RagConfig
-from vision_cad_emu35.data.manifest import load_manifest
-from vision_cad_emu35.data.scan_dataset import scan_dataset
-from vision_cad_emu35.rag.image_embedding import create_image_embedder
-from vision_cad_emu35.rag.kb_schema import KBItem
-from vision_cad_emu35.rag.vector_store import build_vector_store
-from vision_cad_emu35.utils.jsonl import write_jsonl
+from config import RagConfig
+from data.manifest import load_manifest
+from data.scan_dataset import scan_dataset
+from rag.image_embedding import create_image_embedder
+from rag.kb_schema import KBItem
+from rag.vector_store import build_vector_store
+from utils.jsonl import write_jsonl
 
 
 def build_kb_from_dataset(

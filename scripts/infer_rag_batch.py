@@ -23,16 +23,16 @@ _bootstrap_thread_env()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from vision_cad_emu35.utils.runtime_env import normalize_thread_env
+from utils.runtime_env import normalize_thread_env
 
 normalize_thread_env()
 
-from vision_cad_emu35.config import load_config
-from vision_cad_emu35.inference.rag_single_step import load_frozen_adapter, run_rag_single_step
-from vision_cad_emu35.model_paths import apply_model_root_override
-from vision_cad_emu35.rag.retriever import RagRetriever
-from vision_cad_emu35.utils.jsonl import read_jsonl, write_jsonl
-from vision_cad_emu35.utils.logging import setup_logging
+from config import load_config
+from inference.rag_single_step import load_frozen_adapter, run_rag_single_step
+from model_paths import apply_model_root_override
+from rag.retriever import RagRetriever
+from utils.jsonl import read_jsonl, write_jsonl
+from utils.logging import setup_logging
 
 
 def main() -> None:

@@ -5,10 +5,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from vision_cad_emu35.config import AppConfig
-from vision_cad_emu35.inference.rag_single_step import run_rag_single_step
-from vision_cad_emu35.models.emu35_adapter import Emu35Adapter
-from vision_cad_emu35.rag.retriever import RagRetriever
+from config import AppConfig
+from inference.rag_single_step import run_rag_single_step
+from models.emu35_adapter import Emu35Adapter
+from rag.retriever import RagRetriever
 
 
 class AutoregressiveRagPlanner:

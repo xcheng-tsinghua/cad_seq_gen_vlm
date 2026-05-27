@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from vision_cad_emu35.rag.vector_store import NumpyVectorStore, build_vector_store
+from rag.vector_store import NumpyVectorStore, build_vector_store
 
 
 def test_vector_store_top_k_retrieval():

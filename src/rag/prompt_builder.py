@@ -6,9 +6,9 @@ from typing import Any
 
 from PIL import Image
 
-from vision_cad_emu35.config import RagConfig
-from vision_cad_emu35.rag.example_formatter import format_reference_example
-from vision_cad_emu35.utils.image_io import load_image_rgb, resize_pad_image
+from config import RagConfig
+from rag.example_formatter import format_reference_example
+from utils.image_io import load_image_rgb, resize_pad_image
 
 
 SYSTEM_PROMPT = (
