@@ -25,7 +25,7 @@ cad_seq_gen_vlm/
 
 Large local folders such as `data/`, `outputs/`, `checkpoints/`, `pretrained_lm/`, and `third_party/` are intentionally ignored. Keep model weights and generated artifacts outside Git.
 
-## Setup
+## Environment Setup
 
 The validated runtime uses conda, Python `3.12.13`, PyTorch `2.11.0+cu128`, and Transformers `4.48.2`.
 
@@ -36,17 +36,12 @@ conda create -n cad_vlm -c conda-forge python=3.12.13 -y
 conda activate cad_vlm
 python -m pip install --upgrade pip setuptools wheel
 
-python -m pip install \
-  --extra-index-url https://download.pytorch.org/whl/cu128 \
-  torch==2.11.0+cu128 \
-  torchvision==0.26.0+cu128 \
-  torchaudio==2.11.0+cu128
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchvision==0.26.0+cu128 torchaudio==2.11.0+cu128
 
 mkdir -p third_party
 git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
 
-python -m pip install -r third_party/Emu3.5/requirements/common.txt
-python -m pip install transformers==4.48.2 accelerate einops
+python -m pip install -r requirements.txt
 ```
 
 Install the download helpers if you need `scripts/download_models.py`:
@@ -61,21 +56,9 @@ For development-only tools:
 python -m pip install pytest ruff
 ```
 
-Use one Python environment at a time. Before debugging runtime issues, confirm `which python` or `python -c "import sys; print(sys.executable)"` points at the active `cad_vlm` conda environment.
-
 Quick verification:
 
 ```bash
-python -V
-python - <<'PY'
-import torch
-import transformers
-import einops
-
-print("torch:", torch.__version__, "cuda:", torch.version.cuda)
-print("transformers:", transformers.__version__)
-print("einops:", einops.__version__)
-PY
 python scripts/check_gpu_env.py
 python scripts/check_emu35_imports.py --config configs/rag.yaml
 python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
@@ -83,13 +66,6 @@ python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
 ```
 
 ## CUDA 12.8 / Blackwell Notes
-
-Blackwell GPUs require a recent NVIDIA driver and a PyTorch build with CUDA 12.8 or newer. Install the CUDA-enabled PyTorch wheel first, then install Emu3.5/common dependencies, then install Transformers `4.48.2`.
-
-`requirements-blackwell-cu128.txt` is a convenience file for CUDA 12.8 installs, but the pinned conda sequence above is the preferred way to reproduce the currently working environment.
-
-`scripts/check_gpu_env.py` prints the PyTorch version, CUDA version, GPU name, compute capability, bf16 support, CUDA tensor allocation status, and optional acceleration import status.
-
 Optional acceleration libraries are not required:
 
 - `flash-attn`
@@ -101,11 +77,7 @@ If they are absent, the project falls back to standard PyTorch inference with a 
 
 For CPU-only model downloading or RAG KB building:
 
-```bash
-python -m pip install -r requirements-cpu.txt
-```
-
-## Download Models from ModelScope Without GPU
+## Download weights from ModelScope Without GPU
 
 Recommended for mainland China:
 
@@ -139,80 +111,6 @@ python scripts/download_models.py \
 ```
 
 Runtime loading always uses local paths by default. The adapter does not download anything.
-
-## Install Official Emu3.5 Runtime Source Code
-
-This project downloads Emu3.5 model weights, but it also needs the official Emu3.5 source code at runtime. [src/models/emu35_adapter.py](src/models/emu35_adapter.py) imports official utilities such as `build_emu3p5`, `build_image`, `generate`, and `multimodal_decode`.
-
-Use this portability-oriented layout:
-
-- Large model weights stay under `/root/autodl-tmp/data`.
-- The RAG knowledge base stays under `/root/autodl-tmp/data/outputs/rag_kb`.
-- Generated outputs and API artifacts should stay under `/root/autodl-tmp/data/outputs`.
-- Official Emu3.5 runtime source code lives inside this project under `third_party/Emu3.5`.
-
-Do not move model weights into `third_party`, and do not vendor downloaded model weights into this repository.
-
-Recommended official source checkout path:
-
-```text
-third_party/Emu3.5
-```
-
-Clone the official runtime source:
-
-```bash
-mkdir -p third_party
-git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
-```
-
-If GitHub access is slow, manually download/upload the repo or use an available GitHub mirror/proxy.
-
-Then confirm `configs/rag.yaml` points to that checkout while keeping the local model-weight paths under `/root/autodl-tmp/data`:
-
-```yaml
-model:
-  model_root: "/root/autodl-tmp/data"
-  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
-  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
-  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
-  emu_repo_path: "third_party/Emu3.5"
-  local_files_only: true
-  attn_implementation: "eager"
-  clear_transformers_remote_code_cache: true
-  patch_tokenizer_source: true
-```
-
-If `model.emu_repo_path` is absolute, the runtime uses it directly. If it is relative, the runtime resolves it from the project root, so `third_party/Emu3.5` works no matter where you launch the scripts from.
-
-Do not let the official Emu3.5 requirements reinstall or downgrade torch. The validated environment should keep its CUDA-compatible torch build, such as `torch 2.11.0+cu128`.
-
-Use the small common requirements file, then install the manually pinned runtime packages:
-
-```bash
-python -m pip install -r third_party/Emu3.5/requirements/common.txt
-python -m pip install transformers==4.48.2 accelerate einops
-```
-
-Avoid installing `third_party/Emu3.5/requirements/transformers.txt` directly unless you have checked that pip will keep the existing CUDA torch wheel. That file includes torch-family requirements in addition to Transformers.
-
-Check that the adapter can import the official runtime utilities:
-
-```bash
-python scripts/check_emu35_imports.py --config configs/rag.yaml
-```
-
-Check that the custom Emu3.5 tokenizer is compatible with the installed Transformers version:
-
-```bash
-python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
-```
-
-Check that the project generation config contains the fields expected by the official Emu3.5 generation runtime:
-
-```bash
-python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
-```
 
 ## Dataset Layout
 
@@ -294,42 +192,31 @@ rag:
 8. Prepare manifest:
 
 ```bash
-python scripts/prepare_manifest.py \
-  --dataset-root /path/to/your/dataset \
-  --manifest-dir data/manifests \
-  --add-stop-samples
+python scripts/prepare_manifest.py --dataset-root /path/to/your/dataset --manifest-dir data/manifests --add-stop-samples
 ```
 
 9. Build RAG knowledge base:
 
 ```bash
-python scripts/build_kb.py \
-  --config configs/rag.yaml \
-  --dataset-root /path/to/your/dataset
+python scripts/build_kb.py --config configs/rag.yaml --dataset-root /path/to/your/dataset
 ```
 
 10. Inspect KB:
 
 ```bash
-python scripts/inspect_kb.py \
-  --config configs/rag.yaml
+python scripts/inspect_kb.py --config configs/rag.yaml
 ```
 
 11. Run single inference:
 
 ```bash
-python scripts/infer_rag_single.py \
-  --config configs/rag.yaml \
-  --final-snapshot examples/final_snapshot.png \
-  --prev-depth-map examples/prev_depth_map.png \
-  --output-dir /root/autodl-tmp/data/outputs/rag_single
+python scripts/infer_rag_single.py --config configs/rag.yaml --final-snapshot examples/final_snapshot.png --prev-depth-map examples/prev_depth_map.png --output-dir /root/autodl-tmp/data/outputs/rag_single
 ```
 
 12. Launch web demo:
 
 ```bash
-python scripts/launch_web_demo.py \
-  --config configs/rag.yaml
+python scripts/launch_web_demo.py --config configs/rag.yaml
 ```
 
 Open:
