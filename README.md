@@ -1,111 +1,550 @@
+# vision_cad_emu35
 
-# environment
-这里 cuda 版本是 12.2
-conda create -n cad_vlm python=3.11.11
-conda activate cad_vlm
-pip install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+Frozen Emu3.5 RAG system for vision-based CAD modeling step reverse generation.
 
-# CAD Sequence Generation (Structured V2 Only)
+This project no longer fine-tunes Emu3.5. It keeps Emu3.5 frozen, builds a retrieval knowledge base from historical CAD modeling steps, retrieves similar examples for a query, and asks Emu3.5 to generate:
 
-这个仓库只保留第二版：**结构化多头生成**。  
-每个建模步骤同时预测 4 张子图（不是单一 canvas）：
+- `Operation_Type: <operation_type>`
+- one CAD-style preview image, `overlayed_all.png`
 
-1. `prev_depth_map`  
-2. `sketch_plane_mask`  
-3. `reference_mask`  
-4. `result_frame`
+The system supports an empty knowledge base. If no KB exists, the API and web demo still launch and run zero-shot using only the query images and drawing rules.
 
-## 模型设计
+## Project Layout
 
-- **主模型**：`StructuredMultiHeadUNet`（共享编码器 + 4 个输出头）
-- **输入通道**：
-  - 目标零件图
-  - 上一步 4 个子图
-  - 目标零件边缘图
-- **分辨率策略**：读取时使用等比缩放 + padding，避免拉伸变形；推理导出时自动去 padding 并恢复原图比例。
-- **专门 loss**：
-  - `mask IoU`（`sketch_plane_mask` / `reference_mask`）
-  - `wireframe edge consistency`（`result_frame` 的 Sobel 梯度一致性）
-  - `SD latent consistency`（使用最新 Stable Diffusion 的 VAE 做结构感知约束）
-- **步骤数预测**：CLIP + KNN
+The repository now runs directly from the `cad_seq_gen_vlm` root, not from a nested `vision_cad_emu35/` project directory:
 
-## 最新 Stable Diffusion
-
-训练脚本固定使用以下路径：
-
-- `vlm/stable-diffusion-3.5-medium/sd3.5_medium.safetensors`
-- `vlm/stable-diffusion-3.5-medium/sd3.5_medium_config.json`
-
-如果任一文件不存在，会从 HuggingFace 下载后复制到上述固定位置。
-其中：
-- `sd3.5_medium.safetensors`：下载 `sd3.5_medium.safetensors`
-- `sd3.5_medium_config.json`：下载 `vae/config.json` 并重命名保存
-
-## HuggingFace 登录
-
-`stabilityai/stable-diffusion-3.5-medium` 是 gated 模型，下载前需要登录。  
-Access Token 固定从 `vlm/hf_access_token.json` 读取。
-
-```bash
-# 请直接编辑文件：
-# vlm/hf_access_token.json
-# {
-#   "access_token": "hf_xxx"
-# }
+```text
+cad_seq_gen_vlm/
+  configs/                 Runtime YAML configs.
+  examples/                Small checked-in demo images.
+  scripts/                 CLI entry points for download, checks, KB build, API, and demo.
+  src/vision_cad_emu35/    Python package source.
+  tests/                   Unit tests.
+  third_party/Emu3.5/      Local official Emu3.5 runtime checkout, ignored by Git.
 ```
 
-如果 `--w-sd-latent 0` 则不启用 VAE，跳过登录与下载。
+Large local folders such as `data/`, `outputs/`, `checkpoints/`, `pretrained_lm/`, and `third_party/` are intentionally ignored. Keep model weights and generated artifacts outside Git.
 
-## 原始数据目录
+## Setup
+
+The validated runtime uses conda, Python `3.12.13`, PyTorch `2.11.0+cu128`, and Transformers `4.48.2`.
+
+```bash
+cd /opt/data/private/networks/cad_seq_gen_vlm
+
+conda create -n cad_vlm -c conda-forge python=3.12.13 -y
+conda activate cad_vlm
+python -m pip install --upgrade pip setuptools wheel
+
+python -m pip install \
+  --extra-index-url https://download.pytorch.org/whl/cu128 \
+  torch==2.11.0+cu128 \
+  torchvision==0.26.0+cu128 \
+  torchaudio==2.11.0+cu128
+
+mkdir -p third_party
+git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
+
+python -m pip install -r third_party/Emu3.5/requirements/common.txt
+python -m pip install transformers==4.48.2 accelerate einops
+python -m pip install -e . --no-deps
+```
+
+Install the download helpers if you need `scripts/download_models.py`:
+
+```bash
+python -m pip install modelscope huggingface_hub
+```
+
+For development-only tools:
+
+```bash
+python -m pip install pytest ruff
+```
+
+Use one Python environment at a time. Before debugging runtime issues, confirm `which python` or `python -c "import sys; print(sys.executable)"` points at the active `cad_vlm` conda environment.
+
+Do not run `pip install -e .` without `--no-deps` in the validated Emu3.5 environment unless you intentionally want pip to re-resolve the project metadata. The install order above keeps the CUDA PyTorch wheel and Transformers version fixed.
+
+Quick verification:
+
+```bash
+python -V
+python - <<'PY'
+import torch
+import transformers
+import einops
+
+print("torch:", torch.__version__, "cuda:", torch.version.cuda)
+print("transformers:", transformers.__version__)
+print("einops:", einops.__version__)
+PY
+python scripts/check_gpu_env.py
+python scripts/check_emu35_imports.py --config configs/rag.yaml
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+## CUDA 12.8 / Blackwell Notes
+
+Blackwell GPUs require a recent NVIDIA driver and a PyTorch build with CUDA 12.8 or newer. Install the CUDA-enabled PyTorch wheel first, then install Emu3.5/common dependencies, then install Transformers `4.48.2`.
+
+`requirements-blackwell-cu128.txt` is a convenience file for CUDA 12.8 installs, but the pinned conda sequence above is the preferred way to reproduce the currently working environment.
+
+`scripts/check_gpu_env.py` prints the PyTorch version, CUDA version, GPU name, compute capability, bf16 support, CUDA tensor allocation status, and optional acceleration import status.
+
+Optional acceleration libraries are not required:
+
+- `flash-attn`
+- `xformers`
+- `bitsandbytes`
+- `vllm`
+
+If they are absent, the project falls back to standard PyTorch inference with a warning.
+
+For CPU-only model downloading or RAG KB building:
+
+```bash
+python -m pip install -r requirements-cpu.txt
+```
+
+## Download Models from ModelScope Without GPU
+
+Recommended for mainland China:
+
+```bash
+python -m pip install modelscope huggingface_hub
+python scripts/download_models.py
+```
+
+The downloader does not import `torch`, does not load the model, and does not require a GPU. It writes:
+
+```text
+/root/autodl-tmp/data/BAAI/Emu3.5
+/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer
+```
+
+ModelScope custom ids:
+
+```bash
+python scripts/download_models.py \
+  --backend modelscope \
+  --main-modelscope-id BAAI/Emu3.5 \
+  --vision-tokenizer-modelscope-id BAAI/Emu3.5-VisionTokenizer
+```
+
+Hugging Face fallback:
+
+```bash
+python scripts/download_models.py \
+  --backend huggingface \
+  --hf-token $HF_TOKEN
+```
+
+Runtime loading always uses local paths by default. The adapter does not download anything.
+
+## Install Official Emu3.5 Runtime Source Code
+
+This project downloads Emu3.5 model weights, but it also needs the official Emu3.5 source code at runtime. [src/vision_cad_emu35/models/emu35_adapter.py](src/vision_cad_emu35/models/emu35_adapter.py) imports official utilities such as `build_emu3p5`, `build_image`, `generate`, and `multimodal_decode`.
+
+Use this portability-oriented layout:
+
+- Large model weights stay under `/root/autodl-tmp/data`.
+- The RAG knowledge base stays under `/root/autodl-tmp/data/outputs/rag_kb`.
+- Generated outputs and API artifacts should stay under `/root/autodl-tmp/data/outputs`.
+- Official Emu3.5 runtime source code lives inside this project under `third_party/Emu3.5`.
+
+Do not move model weights into `third_party`, and do not vendor downloaded model weights into this repository.
+
+Recommended official source checkout path:
+
+```text
+third_party/Emu3.5
+```
+
+Clone the official runtime source:
+
+```bash
+mkdir -p third_party
+git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
+```
+
+If GitHub access is slow, manually download/upload the repo or use an available GitHub mirror/proxy.
+
+Then confirm `configs/rag.yaml` points to that checkout while keeping the local model-weight paths under `/root/autodl-tmp/data`:
+
+```yaml
+model:
+  model_root: "/root/autodl-tmp/data"
+  model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
+  vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
+  emu_repo_path: "third_party/Emu3.5"
+  local_files_only: true
+  attn_implementation: "eager"
+  clear_transformers_remote_code_cache: true
+  patch_tokenizer_source: true
+```
+
+If `model.emu_repo_path` is absolute, the runtime uses it directly. If it is relative, the runtime resolves it from the project root, so `third_party/Emu3.5` works no matter where you launch the scripts from.
+
+Do not let the official Emu3.5 requirements reinstall or downgrade torch. The validated environment should keep its CUDA-compatible torch build, such as `torch 2.11.0+cu128`.
+
+Use the small common requirements file, then install the manually pinned runtime packages:
+
+```bash
+python -m pip install -r third_party/Emu3.5/requirements/common.txt
+python -m pip install transformers==4.48.2 accelerate einops
+```
+
+Avoid installing `third_party/Emu3.5/requirements/transformers.txt` directly unless you have checked that pip will keep the existing CUDA torch wheel. That file includes torch-family requirements in addition to Transformers.
+
+Check that the adapter can import the official runtime utilities:
+
+```bash
+python scripts/check_emu35_imports.py --config configs/rag.yaml
+```
+
+Check that the custom Emu3.5 tokenizer is compatible with the installed Transformers version:
+
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
+
+Check that the project generation config contains the fields expected by the official Emu3.5 generation runtime:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+## Dataset Layout
 
 ```text
 root/
-  <part_id_1>/
+  CAD_PART_ID_VIEW_SUFFIX/
+    final_snapshot.png
     roll_back_index_1/
       prev_depth_map.png
-      sketch_plane_mask.png
-      reference_mask.png
-      result_frame.png
-    ...
+      current_depth_map.png
+      operation_param.json
+      overlayed_all.png
+    roll_back_index_3/
+      ...
 ```
 
-## 使用流程
+Rollback indices may be non-continuous. Operation types are derived exactly from `operation_param.json` by `get_exact_operation_type_from_param`.
 
-### 1) 安装依赖
+## Normal RAG Workflow
+
+1. Check GPU environment:
 
 ```bash
-pip install -r requirements.txt
+python scripts/check_gpu_env.py
 ```
 
-### 2) 训练（结构化多头，在线预处理）
+2. Download model weights:
 
 ```bash
-python -m train --raw-root "E:/your_dataset_root"
+python scripts/download_models.py
 ```
 
-输出：
-- `model_trained/<dataset_name>/train_<timestamp>/best.pth`
-- `model_trained/<dataset_name>/train_<timestamp>/last.pth`
-- `model_trained/<dataset_name>/train_<timestamp>/train_history.json`
-
-### 3) 推理（自回归步骤生成）
+3. Install or configure official Emu3.5 runtime source code:
 
 ```bash
-python -m infer --raw-root "E:/your_dataset_root" --input-image "E:/test/part.png"
+mkdir -p third_party
+git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
 ```
 
-默认会自动寻找最近一次训练的 `best.pth`，并把结果保存到 `output/<dataset_name>/infer_<timestamp>/`。
+Make sure `configs/rag.yaml` contains:
 
-### 4) 验证与可视化评估
+```yaml
+model:
+  emu_repo_path: "third_party/Emu3.5"
+```
+
+4. Check official Emu3.5 imports:
 
 ```bash
-python -m eval --raw-root "E:/your_dataset_root"
+python scripts/check_emu35_imports.py --config configs/rag.yaml
 ```
 
-输出：
-- `metrics.json`（四个子图分开评估）
-- `summary_metrics.png`（汇总柱状图）
-- `visuals/*.png`（预测 vs GT 对比图）
+5. Check Emu3.5 tokenizer compatibility:
 
-评估结果保存到 `output/<dataset_name>/eval_<timestamp>/`。
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
 
+6. Check Emu3.5 generation config compatibility:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+7. Edit dataset path in `configs/rag.yaml`:
+
+```yaml
+data:
+  dataset_root: "/path/to/your/dataset"
+```
+
+The default knowledge base path is also defined in `configs/rag.yaml`:
+
+```yaml
+rag:
+  kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
+```
+
+8. Prepare manifest:
+
+```bash
+python scripts/prepare_manifest.py \
+  --dataset-root /path/to/your/dataset \
+  --manifest-dir data/manifests \
+  --add-stop-samples
+```
+
+9. Build RAG knowledge base:
+
+```bash
+python scripts/build_kb.py \
+  --config configs/rag.yaml \
+  --dataset-root /path/to/your/dataset
+```
+
+10. Inspect KB:
+
+```bash
+python scripts/inspect_kb.py \
+  --config configs/rag.yaml
+```
+
+11. Run single inference:
+
+```bash
+python scripts/infer_rag_single.py \
+  --config configs/rag.yaml \
+  --final-snapshot examples/final_snapshot.png \
+  --prev-depth-map examples/prev_depth_map.png \
+  --output-dir /root/autodl-tmp/data/outputs/rag_single
+```
+
+12. Launch web demo:
+
+```bash
+python scripts/launch_web_demo.py \
+  --config configs/rag.yaml
+```
+
+Open:
+
+```text
+http://SERVER_IP:8000
+```
+
+The server binds to `0.0.0.0` by default so other computers on the network can access it.
+
+## Changing the KB Path
+
+Default KB path:
+
+```text
+/root/autodl-tmp/data/outputs/rag_kb
+```
+
+Option A: edit `configs/rag.yaml`:
+
+```yaml
+rag:
+  kb_dir: "/new/kb/path"
+```
+
+Option B: override from CLI:
+
+```bash
+python scripts/build_kb.py \
+  --config configs/rag.yaml \
+  --dataset-root /path/to/dataset \
+  --kb-dir /new/kb/path
+
+python scripts/launch_web_demo.py \
+  --config configs/rag.yaml \
+  --kb-dir /new/kb/path
+```
+
+The same `--kb-dir` override is supported by `inspect_kb.py`, `infer_rag_single.py`, `infer_rag_batch.py`, `launch_api.py`, and `launch_web_demo.py`.
+
+## Empty KB Mode
+
+These cases are supported:
+
+- `/root/autodl-tmp/data/outputs/rag_kb` does not exist.
+- `kb_items.jsonl` is empty.
+- `embeddings.npy` is missing.
+- `embeddings.npy` has shape `(0, dim)`.
+
+In all cases retrieval returns `[]`, the prompt builder creates a zero-shot prompt, and the web UI shows:
+
+```text
+Knowledge base is empty. The system is running in zero-shot mode.
+```
+
+Generation still requires a locally installed/loadable Emu3.5 model.
+
+## API
+
+```bash
+python scripts/launch_api.py \
+  --config configs/rag.yaml
+```
+
+Endpoints:
+
+- `GET /health`
+- `POST /retrieve`
+- `POST /generate`
+- `POST /reload_kb`
+
+`GET /health` reports `kb_dir`, `kb_loaded`, `kb_empty`, and `kb_item_count`.
+
+`POST /generate` accepts multipart fields:
+
+- `final_snapshot`
+- `prev_depth_map`
+- `top_k`
+- `prompt_extra`
+
+## Troubleshooting
+
+### Emu3ForCausalLM Does Not Support Flash Attention 2 Yet
+
+Problem:
+
+```text
+ValueError: Emu3ForCausalLM does not support Flash Attention 2 yet.
+```
+
+Solution:
+
+```yaml
+model:
+  attn_implementation: "eager"
+```
+
+This is the default in `configs/rag.yaml`. Supported values are `eager`, `sdpa`, `auto`, and `flash_attention_2`, but `auto` is resolved conservatively to `eager` for Emu3.5 so it does not accidentally select Flash Attention 2. If Flash Attention 2 is requested and Emu3.5 rejects it, the adapter retries once with eager attention.
+
+Optional acceleration libraries are not required for the first working version:
+
+- `flash-attn`
+- `xformers`
+- `bitsandbytes`
+- `vllm`
+
+### Invalid OMP_NUM_THREADS
+
+If logs show:
+
+```text
+libgomp: Invalid value for environment variable OMP_NUM_THREADS
+auto
+```
+
+the runtime scripts normalize invalid, missing, `0`, or `auto` values for `OMP_NUM_THREADS` and `MKL_NUM_THREADS` to `8` before loading torch or Emu3.5.
+
+The runtime also sets this memory-safer CUDA allocator default if it is not already configured:
+
+```bash
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+```
+
+### Emu3Tokenizer special_tokens_set Error
+
+Problem:
+
+```text
+AttributeError: Emu3Tokenizer has no attribute special_tokens_set
+```
+
+Cause:
+
+The custom Emu3Tokenizer code is incompatible with the current Transformers initialization path, or stale Hugging Face remote-code cache is being used from:
+
+```text
+~/.cache/huggingface/modules/transformers_modules/
+```
+
+Solution:
+
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
+
+The checker applies the local tokenizer compatibility patch, clears only the Emu3.5-specific Transformers remote-code cache when `model.clear_transformers_remote_code_cache: true`, loads the tokenizer with `local_files_only=True`, and runs a short encode/decode test.
+
+Then retry:
+
+```bash
+python scripts/infer_rag_single.py \
+  --config configs/rag.yaml \
+  --final-snapshot examples/final_snapshot.png \
+  --prev-depth-map examples/prev_depth_map.png \
+  --output-dir outputs/rag_single
+```
+
+If stale cache is suspected, clear only the Emu3.5 remote-code cache under `~/.cache/huggingface/modules/transformers_modules/`. Do not delete model weights under `/root/autodl-tmp/data/BAAI/Emu3.5`.
+
+### Emu3.5 Generation Config Missing Field
+
+Problem:
+
+```text
+AttributeError: 'types.SimpleNamespace' object has no attribute 'unconditional_type'
+```
+
+Cause:
+
+The official `third_party/Emu3.5/src/utils/generation_utils.py` expects an Emu3.5-shaped config object, including `unconditional_type`, `special_token_ids`, `classifier_free_guidance`, `sampling_params`, target image dimensions, and image CFG fields.
+
+Solution:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+The adapter builds this object with `build_emu35_generation_cfg()` and fills safe defaults. `configs/rag.yaml` includes all configurable generation fields explicitly.
+
+### Runtime Warnings
+
+Warnings that should be fixed before treating inference as healthy:
+
+- `Emu3ForCausalLM does not support Flash Attention 2 yet`: keep `model.attn_implementation: "eager"`.
+- `Emu3Tokenizer has no attribute special_tokens_set`: run `python scripts/check_emu35_tokenizer.py --config configs/rag.yaml`.
+- `SimpleNamespace has no attribute unconditional_type`: run `python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml`.
+- `do_sample=false` with `temperature`, `top_p`, or `top_k`: keep these generic generation fields as `null` when `do_sample: false`.
+- `libgomp: Invalid value for environment variable OMP_NUM_THREADS`: let the runtime normalize env vars or export positive integers manually.
+
+Warnings that are currently non-fatal compatibility noise:
+
+- `seen_tokens` deprecation warnings from Transformers cache internals.
+- `get_max_cache` deprecation warnings from Transformers cache internals.
+
+Those cache warnings are from upstream API drift and should not block a working MVP unless they become errors in a later Transformers release.
+
+## RAG Components
+
+- `rag/image_embedding.py`: CLIP if available, simple CPU embedding by default.
+- `rag/vector_store.py`: pure NumPy cosine-similarity vector store.
+- `rag/retriever.py`: empty-KB-safe retrieval with optional operation type filtering.
+- `rag/prompt_builder.py`: multimodal prompt packing with configurable retrieved example images.
+- `models/emu35_adapter.py`: frozen Emu3.5 inference-only adapter.
+
+## Not a Fine-Tuning Project
+
+Fine-tuning scripts, LoRA/QLoRA training, optimizer loops, validation loss, and checkpoint training workflows have been removed. The current project is RAG-first and uses frozen Emu3.5 for inference only.
+
+## Tests
+
+```bash
+pytest
+```
+
+Tests cover operation type extraction, dataset scanning, empty-KB behavior, prompt building, and vector retrieval.

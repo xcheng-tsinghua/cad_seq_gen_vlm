@@ -1,19 +1,70 @@
-.idea
-__pycache__
-data/__pycache__
-models/__pycache__
-utils/__pycache__
-model_trained
-output
-vlm
-checkpoints/
-pretrained_lm/
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.coverage
+htmlcov/
 
-# HuggingFace model snapshots auto-downloaded by config.set_hf_cache_env().
-# Keep the folder in the repo (so it exists on fresh clones) but ignore
-# every file inside it.
-pretrained_lm/*
-!pretrained_lm/.gitkeep
+# Packaging/build artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
 
-vision_cad_emu35/.venv/
-vision_cad_emu35/third_party/
+# Local Python environments
+.venv/
+venv/
+env/
+.env/
+.conda/
+conda-meta/
+
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+
+# IDE/editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Local data, model weights, checkpoints, and generated outputs
+/data/
+/output/
+/outputs/
+/model_trained/
+/checkpoints/
+/vlm/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.npy
+*.npz
+
+# Hugging Face / ModelScope model snapshots downloaded for local runs.
+# Keep the directory available for a placeholder if needed, but never commit
+# downloaded model files.
+/pretrained_lm/*
+!/pretrained_lm/.gitkeep
+
+# Official Emu3.5 source checkout and other vendored/runtime-only code.
+# Recreate it with: git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
+/third_party/*
+!/third_party/.gitkeep
