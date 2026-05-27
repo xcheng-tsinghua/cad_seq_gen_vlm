@@ -1,4 +1,4 @@
-/root/autodl-tmp/opt_backup/data/private/networks/cad_seq_gen_vlm/vision_cad_emu35 && conda activate cad_vlm
+cd /opt/data/private/networks/cad_seq_gen_vlm && conda activate cad_vlm
 
 
 # 查看当前状态
@@ -43,13 +43,13 @@ nohup 末尾添加该命令可以指定log文件
 git branch
 
 # 2. 基于当前分支创建新分支
-git branch emu35_rag_valid1
+git branch emu35_rag_valid2
 
 # 3. 切换到新分支
-git checkout emu35_rag_valid1
+git checkout emu35_rag_valid2
 
 # 4. 将本地分支关联到远程分支，并推送新分支到远程仓库
-git push -u origin emu35_rag_valid1
+git push -u origin emu35_rag_valid2
 
 
 
