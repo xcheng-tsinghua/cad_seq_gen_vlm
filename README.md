@@ -1,4 +1,4 @@
-# cad_seq_gen_vlm
+# Vision2CAD
 
 Frozen Emu3.5 RAG system for vision-based CAD modeling step reverse generation.
 
