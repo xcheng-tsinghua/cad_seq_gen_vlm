@@ -432,3 +432,239 @@ pytest
 ```
 
 Tests cover operation type extraction, dataset scanning, empty-KB behavior, prompt building, and vector retrieval.
+
+## Environment success
+```
+GPU: RTX PRO 6000
+(cad_vlm) root@autodl-container-eesuqcek0l-c2d01990:/opt/data/private/networks/cad_seq_gen_vlm# pip list
+Package                  Version
+------------------------ ------------
+accelerate               1.13.0
+aiofiles                 24.1.0
+annotated-doc            0.0.4
+annotated-types          0.7.0
+antlr4-python3-runtime   4.9.3
+anyio                    4.13.0
+brotli                   1.2.0
+certifi                  2026.5.20
+charset-normalizer       3.4.7
+click                    8.4.1
+cuda-bindings            12.9.4
+cuda-pathfinder          1.2.2
+cuda-toolkit             12.8.1
+einops                   0.8.2
+fastapi                  0.136.3
+ffmpy                    1.0.0
+filelock                 3.29.0
+fsspec                   2026.4.0
+gradio                   5.49.1
+gradio_client            1.13.3
+groovy                   0.1.2
+h11                      0.16.0
+hf-xet                   1.5.0
+httpcore                 1.0.9
+httpx                    0.28.1
+huggingface_hub          0.36.2
+idna                     3.16
+imageio                  2.37.0
+imageio-ffmpeg           0.6.0
+Jinja2                   3.1.6
+markdown-it-py           4.2.0
+MarkupSafe               3.0.3
+mdurl                    0.1.2
+mpmath                   1.3.0
+networkx                 3.6.1
+numpy                    2.4.4
+nvidia-cublas-cu12       12.8.4.1
+nvidia-cuda-cupti-cu12   12.8.90
+nvidia-cuda-nvrtc-cu12   12.8.93
+nvidia-cuda-runtime-cu12 12.8.90
+nvidia-cudnn-cu12        9.19.0.56
+nvidia-cufft-cu12        11.3.3.83
+nvidia-cufile-cu12       1.13.1.3
+nvidia-curand-cu12       10.3.9.90
+nvidia-cusolver-cu12     11.7.3.90
+nvidia-cusparse-cu12     12.5.8.93
+nvidia-cusparselt-cu12   0.7.1
+nvidia-nccl-cu12         2.28.9
+nvidia-nvjitlink-cu12    12.8.93
+nvidia-nvshmem-cu12      3.4.5
+nvidia-nvtx-cu12         12.8.90
+omegaconf                2.3.0
+orjson                   3.11.9
+packaging                26.0
+pandas                   2.3.3
+pillow                   11.3.0
+pip                      26.0.1
+protobuf                 7.35.0
+psutil                   7.2.2
+pydantic                 2.11.10
+pydantic_core            2.33.2
+pydub                    0.25.1
+Pygments                 2.20.0
+python-dateutil          2.9.0.post0
+python-multipart         0.0.29
+pytz                     2026.2
+PyYAML                   6.0.3
+regex                    2026.5.9
+requests                 2.34.2
+rich                     15.0.0
+ruff                     0.15.14
+safehttpx                0.1.7
+safetensors              0.7.0
+semantic-version         2.10.0
+setuptools               70.2.0
+shellingham              1.5.4
+six                      1.17.0
+starlette                0.52.1
+sympy                    1.14.0
+tiktoken                 0.13.0
+tokenizers               0.21.4
+tomlkit                  0.13.3
+torch                    2.11.0+cu128
+torchaudio               2.11.0+cu128
+torchvision              0.26.0+cu128
+tqdm                     4.67.3
+transformers             4.48.2
+triton                   3.6.0
+typer                    0.25.1
+typing_extensions        4.15.0
+typing-inspection        0.4.2
+tzdata                   2026.2
+urllib3                  2.7.0
+uvicorn                  0.48.0
+websockets               15.0.1
+wheel                    0.46.3
+(cad_vlm) root@autodl-container-eesuqcek0l-c2d01990:/opt/data/private/networks/cad_seq_gen_vlm# conda list
+# packages in environment at /root/miniconda3/envs/cad_vlm:
+#
+# Name                    Version                   Build  Channel
+_libgcc_mutex             0.1                        main    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+_openmp_mutex             5.1                      52_gnu    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+accelerate                1.13.0                   pypi_0    pypi
+aiofiles                  24.1.0                   pypi_0    pypi
+annotated-doc             0.0.4                    pypi_0    pypi
+annotated-types           0.7.0                    pypi_0    pypi
+antlr4-python3-runtime    4.9.3                    pypi_0    pypi
+anyio                     4.13.0                   pypi_0    pypi
+brotli                    1.2.0                    pypi_0    pypi
+bzip2                     1.0.8                h5eee18b_6    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+ca-certificates           2026.5.20            hbd8a1cb_0    conda-forge
+certifi                   2026.5.20                pypi_0    pypi
+charset-normalizer        3.4.7                    pypi_0    pypi
+click                     8.4.1                    pypi_0    pypi
+cuda-bindings             12.9.4                   pypi_0    pypi
+cuda-pathfinder           1.2.2                    pypi_0    pypi
+cuda-toolkit              12.8.1                   pypi_0    pypi
+einops                    0.8.2                    pypi_0    pypi
+fastapi                   0.136.3                  pypi_0    pypi
+ffmpy                     1.0.0                    pypi_0    pypi
+filelock                  3.29.0                   pypi_0    pypi
+fsspec                    2026.4.0                 pypi_0    pypi
+gradio                    5.49.1                   pypi_0    pypi
+gradio-client             1.13.3                   pypi_0    pypi
+groovy                    0.1.2                    pypi_0    pypi
+h11                       0.16.0                   pypi_0    pypi
+hf-xet                    1.5.0                    pypi_0    pypi
+httpcore                  1.0.9                    pypi_0    pypi
+httpx                     0.28.1                   pypi_0    pypi
+huggingface-hub           0.36.2                   pypi_0    pypi
+icu                       78.3                 h33c6efd_0    conda-forge
+idna                      3.16                     pypi_0    pypi
+imageio                   2.37.0                   pypi_0    pypi
+imageio-ffmpeg            0.6.0                    pypi_0    pypi
+jinja2                    3.1.6                    pypi_0    pypi
+ld_impl_linux-64          2.44                 h9e0c5a2_3    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libexpat                  2.8.0                h7354ed3_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libffi                    3.4.8                hc5d346e_2    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libgcc                    15.2.0               h69a1729_8    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libgcc-ng                 15.2.0               h166f726_8    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libstdcxx                 15.2.0               h39759b7_8    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libuuid                   1.41.5               h5eee18b_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libuv                     1.52.1               h280c20c_0    conda-forge
+libxcb                    1.17.0               h9b100fa_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+libzlib                   1.3.2                h25fd6f3_2    conda-forge
+markdown-it-py            4.2.0                    pypi_0    pypi
+markupsafe                3.0.3                    pypi_0    pypi
+mdurl                     0.1.2                    pypi_0    pypi
+mpmath                    1.3.0                    pypi_0    pypi
+ncurses                   6.5                  h7934f7d_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+networkx                  3.6.1                    pypi_0    pypi
+nodejs                    22.22.3              h273caaf_0    conda-forge
+numpy                     2.4.4                    pypi_0    pypi
+nvidia-cublas-cu12        12.8.4.1                 pypi_0    pypi
+nvidia-cuda-cupti-cu12    12.8.90                  pypi_0    pypi
+nvidia-cuda-nvrtc-cu12    12.8.93                  pypi_0    pypi
+nvidia-cuda-runtime-cu12  12.8.90                  pypi_0    pypi
+nvidia-cudnn-cu12         9.19.0.56                pypi_0    pypi
+nvidia-cufft-cu12         11.3.3.83                pypi_0    pypi
+nvidia-cufile-cu12        1.13.1.3                 pypi_0    pypi
+nvidia-curand-cu12        10.3.9.90                pypi_0    pypi
+nvidia-cusolver-cu12      11.7.3.90                pypi_0    pypi
+nvidia-cusparse-cu12      12.5.8.93                pypi_0    pypi
+nvidia-cusparselt-cu12    0.7.1                    pypi_0    pypi
+nvidia-nccl-cu12          2.28.9                   pypi_0    pypi
+nvidia-nvjitlink-cu12     12.8.93                  pypi_0    pypi
+nvidia-nvshmem-cu12       3.4.5                    pypi_0    pypi
+nvidia-nvtx-cu12          12.8.90                  pypi_0    pypi
+omegaconf                 2.3.0                    pypi_0    pypi
+openssl                   3.6.2                h35e630c_0    conda-forge
+orjson                    3.11.9                   pypi_0    pypi
+packaging                 26.0            py312h06a4308_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+pandas                    2.3.3                    pypi_0    pypi
+pillow                    11.3.0                   pypi_0    pypi
+pip                       26.0.1             pyhc872135_1    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+protobuf                  7.35.0                   pypi_0    pypi
+psutil                    7.2.2                    pypi_0    pypi
+pthread-stubs             0.3                  h0ce48e5_1    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+pydantic                  2.11.10                  pypi_0    pypi
+pydantic-core             2.33.2                   pypi_0    pypi
+pydub                     0.25.1                   pypi_0    pypi
+pygments                  2.20.0                   pypi_0    pypi
+python                    3.12.13              h4d16e0c_1    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+python-dateutil           2.9.0.post0              pypi_0    pypi
+python-multipart          0.0.29                   pypi_0    pypi
+pytz                      2026.2                   pypi_0    pypi
+pyyaml                    6.0.3                    pypi_0    pypi
+readline                  8.3                  hc2a1206_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+regex                     2026.5.9                 pypi_0    pypi
+requests                  2.34.2                   pypi_0    pypi
+rich                      15.0.0                   pypi_0    pypi
+ruff                      0.15.14                  pypi_0    pypi
+safehttpx                 0.1.7                    pypi_0    pypi
+safetensors               0.7.0                    pypi_0    pypi
+semantic-version          2.10.0                   pypi_0    pypi
+setuptools                70.2.0                   pypi_0    pypi
+shellingham               1.5.4                    pypi_0    pypi
+six                       1.17.0                   pypi_0    pypi
+sqlite                    3.51.2               h3e8d24a_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+starlette                 0.52.1                   pypi_0    pypi
+sympy                     1.14.0                   pypi_0    pypi
+tiktoken                  0.13.0                   pypi_0    pypi
+tk                        8.6.15               h54e0aa7_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+tokenizers                0.21.4                   pypi_0    pypi
+tomlkit                   0.13.3                   pypi_0    pypi
+torch                     2.11.0+cu128             pypi_0    pypi
+torchaudio                2.11.0+cu128             pypi_0    pypi
+torchvision               0.26.0+cu128             pypi_0    pypi
+tqdm                      4.67.3                   pypi_0    pypi
+transformers              4.48.2                   pypi_0    pypi
+triton                    3.6.0                    pypi_0    pypi
+typer                     0.25.1                   pypi_0    pypi
+typing-extensions         4.15.0                   pypi_0    pypi
+typing-inspection         0.4.2                    pypi_0    pypi
+tzdata                    2026.2                   pypi_0    pypi
+urllib3                   2.7.0                    pypi_0    pypi
+uvicorn                   0.48.0                   pypi_0    pypi
+websockets                15.0.1                   pypi_0    pypi
+wheel                     0.46.3          py312h06a4308_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+xorg-libx11               1.8.12               h9b100fa_1    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+xorg-libxau               1.0.12               h9b100fa_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+xorg-libxdmcp             1.1.5                h9b100fa_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+xorg-xorgproto            2024.1               h5eee18b_1    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+xz                        5.8.2                h448239c_0    https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+zlib                      1.3.2                h25fd6f3_2    conda-forge
+```
+
+
+
