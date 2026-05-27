@@ -47,7 +47,6 @@ git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
 
 python -m pip install -r third_party/Emu3.5/requirements/common.txt
 python -m pip install transformers==4.48.2 accelerate einops
-python -m pip install -e . --no-deps
 ```
 
 Install the download helpers if you need `scripts/download_models.py`:
@@ -63,8 +62,6 @@ python -m pip install pytest ruff
 ```
 
 Use one Python environment at a time. Before debugging runtime issues, confirm `which python` or `python -c "import sys; print(sys.executable)"` points at the active `cad_vlm` conda environment.
-
-Do not run `pip install -e .` without `--no-deps` in the validated Emu3.5 environment unless you intentionally want pip to re-resolve the project metadata. The install order above keeps the CUDA PyTorch wheel and Transformers version fixed.
 
 Quick verification:
 
