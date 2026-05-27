@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import io
 import json
 import time
@@ -20,18 +18,24 @@ from utils.image_io import image_to_base64, save_image
 from utils.runtime_env import normalize_thread_env
 
 try:
+    from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse
+except ImportError as exc:
+    FastAPI = File = Form = HTTPException = UploadFile = None  # type: ignore[assignment]
+    CORSMiddleware = FileResponse = None  # type: ignore[assignment]
+    _FASTAPI_IMPORT_ERROR: ImportError | None = exc
+else:
+    _FASTAPI_IMPORT_ERROR = None
+
+try:
     APP_VERSION = version("vision-cad-emu35")
 except PackageNotFoundError:
     APP_VERSION = "0.1.0"
 
 
 def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
-    try:
-        from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-        from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.responses import FileResponse
-    except ImportError as exc:
-        raise ImportError("fastapi and uvicorn are required for the API server.") from exc
+    _ensure_fastapi()
 
     app = FastAPI(title="cad_seq_gen_vlm_rag", version=APP_VERSION)
     app.add_middleware(
@@ -198,12 +202,15 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
 
 def _require_adapter(app: Any) -> Any:
     if app.state.adapter is None:
-        try:
-            from fastapi import HTTPException
-        except ImportError:
+        if HTTPException is None:
             raise RuntimeError("Model is not loaded.")
         detail = "Model is not loaded."
         if app.state.model_error:
             detail += f" {app.state.model_error}"
         raise HTTPException(status_code=503, detail=detail)
     return app.state.adapter
+
+
+def _ensure_fastapi() -> None:
+    if _FASTAPI_IMPORT_ERROR is not None:
+        raise ImportError("fastapi and uvicorn are required for the API server.") from _FASTAPI_IMPORT_ERROR
