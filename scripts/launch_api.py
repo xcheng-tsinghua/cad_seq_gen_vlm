@@ -32,7 +32,7 @@ from utils.logging import setup_logging
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Launch the frozen Emu3.5 RAG FastAPI service.")
+    parser = argparse.ArgumentParser(description="Launch the frozen Emu3.5 CAD-RAG and general FastAPI service.")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "rag.yaml"))
     parser.add_argument("--model-root", default=None)
     parser.add_argument("--kb-dir", default=None)

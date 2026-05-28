@@ -1,13 +1,23 @@
 # Vision2CAD
 
-Frozen Emu3.5 RAG system for vision-based CAD modeling step reverse generation.
+Frozen Emu3.5 system for vision-based CAD modeling step reverse generation and general multimodal inference.
 
 This project no longer fine-tunes Emu3.5. It keeps Emu3.5 frozen, builds a retrieval knowledge base from historical CAD modeling steps, retrieves similar examples for a query, and asks Emu3.5 to generate:
 
 - `Operation_Type: <operation_type>`
 - one CAD-style preview image, `overlayed_all.png`
 
-The system supports an empty knowledge base. If no KB exists, the API and web demo still launch and run zero-shot using only the query images and drawing rules.
+The system supports an empty knowledge base. If no KB exists, the API and web demo still launch and CAD-RAG runs zero-shot using only the query images and drawing rules. General Emu3.5 mode does not use the knowledge base at all.
+
+## Modes
+
+1. CAD-RAG Mode
+
+Uses the CAD knowledge base and CAD-specific prompt to predict CAD modeling steps from `final_snapshot.png` and `prev_depth_map.png`. It returns `Operation_Type` plus the generated CAD preview image when Emu3.5 produces one.
+
+2. General Emu3.5 Mode
+
+Directly exposes frozen Emu3.5 for normal multimodal tasks. It accepts a user text prompt and zero or more images, skips RAG entirely, and returns raw text, generated image artifacts when present, and debug metadata.
 
 ## Project Layout
 
@@ -227,6 +237,40 @@ http://SERVER_IP:8000
 
 The server binds to `0.0.0.0` by default so other computers on the network can access it.
 
+## General Emu3.5 Mode
+
+Text-only:
+
+```bash
+python scripts/infer_general.py \
+  --config configs/general.yaml \
+  --prompt "Explain what Emu3.5 can do." \
+  --output-dir outputs/general_text
+```
+
+Image + text:
+
+```bash
+python scripts/infer_general.py \
+  --config configs/general.yaml \
+  --prompt "Describe this image." \
+  --image examples/final_snapshot.png \
+  --output-dir outputs/general_image
+```
+
+Multiple images:
+
+```bash
+python scripts/infer_general.py \
+  --config configs/general.yaml \
+  --prompt "Compare these two images." \
+  --image examples/final_snapshot.png \
+  --image examples/prev_depth_map.png \
+  --output-dir outputs/general_multi_image
+```
+
+The script writes `response.json`, `raw_text.txt`, generated image files when present, and Emu3.5 debug events when enabled. Text-only responses are valid; no generated image is not treated as a failure.
+
 ## Changing the KB Path
 
 Default KB path:
@@ -285,17 +329,39 @@ Endpoints:
 
 - `GET /health`
 - `POST /retrieve`
-- `POST /generate`
+- `POST /generate` (backward-compatible CAD-RAG endpoint)
+- `POST /cad/generate`
+- `POST /general/generate`
 - `POST /reload_kb`
 
-`GET /health` reports `kb_dir`, `kb_loaded`, `kb_empty`, and `kb_item_count`.
+`GET /health` reports `model_loaded`, `modes_supported`, CAD-RAG KB status, and GPU info when available.
 
-`POST /generate` accepts multipart fields:
+`POST /generate` and `POST /cad/generate` accept multipart fields:
 
 - `final_snapshot`
 - `prev_depth_map`
 - `top_k`
 - `prompt_extra`
+
+`POST /general/generate` accepts multipart fields:
+
+- `prompt`
+- `images` repeated zero to five times
+
+The web demo is launched the same way:
+
+```bash
+python scripts/launch_web_demo.py \
+  --config configs/rag.yaml
+```
+
+Open:
+
+```text
+http://SERVER_IP:8000
+```
+
+The page includes both CAD-RAG and General Emu3.5 tabs.
 
 ## Troubleshooting
 
@@ -433,7 +499,7 @@ pytest
 
 Tests cover operation type extraction, dataset scanning, empty-KB behavior, prompt building, and vector retrieval.
 
-## Environment success
+## An environment successfully running this project
 ```
 GPU: RTX PRO 6000
 (cad_vlm) root@autodl-container-eesuqcek0l-c2d01990:/opt/data/private/networks/cad_seq_gen_vlm# pip list

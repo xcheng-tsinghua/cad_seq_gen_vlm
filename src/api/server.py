@@ -9,12 +9,21 @@ from typing import Any
 from PIL import Image
 
 from config import AppConfig
+from inference.general import (
+    MAX_GENERAL_INPUT_IMAGES,
+    clear_cuda_cache,
+    cuda_oom_diagnostics,
+    generated_images_from_result,
+    is_cuda_oom_error,
+    save_general_result,
+    write_general_error_response,
+)
 from model_paths import ensure_default_local_model_paths, validate_local_model_paths
 from models.emu35_adapter import Emu35Adapter
 from rag.prompt_builder import RagPromptBuilder
 from rag.retriever import RagRetriever
 from utils.gpu import get_gpu_info
-from utils.image_io import image_to_base64, save_image
+from utils.image_io import image_to_base64, resize_pad_image, save_image
 from utils.runtime_env import normalize_thread_env
 
 try:
@@ -67,11 +76,21 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
     @app.get("/health")
     async def health() -> dict[str, Any]:
         retriever: RagRetriever = app.state.retriever
+        kb_status = retriever.status()
         return {
             "status": "ok",
             "model_loaded": app.state.adapter is not None,
             "model_error": app.state.model_error,
-            **retriever.status(),
+            "modes_supported": ["cad_rag", "general"],
+            "cad_rag": {
+                "enabled": True,
+                **kb_status,
+            },
+            "general": {
+                "enabled": True,
+                "max_input_images": MAX_GENERAL_INPUT_IMAGES,
+            },
+            **kb_status,
             "version": APP_VERSION,
             "gpu": get_gpu_info(),
         }
@@ -80,6 +99,17 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
     async def index() -> Any:
         index_path = Path(__file__).resolve().parents[1] / "web" / "index.html"
         return FileResponse(index_path)
+
+    @app.get("/artifacts/{artifact_path:path}")
+    async def artifact(artifact_path: str) -> Any:
+        target = (artifact_root / artifact_path).resolve()
+        try:
+            target.relative_to(artifact_root.resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Artifact not found.") from exc
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Artifact not found.")
+        return FileResponse(target)
 
     @app.post("/retrieve")
     async def retrieve(
@@ -98,6 +128,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         }
 
     @app.post("/generate")
+    @app.post("/cad/generate")
     async def generate(
         final_snapshot: UploadFile = File(...),
         prev_depth_map: UploadFile = File(...),
@@ -119,7 +150,25 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             examples,
             prompt_extra=prompt_extra,
         )
-        result = adapter.generate_multimodal(prompt.prompt_text, prompt.images, config.generation)
+        try:
+            result = adapter.generate_multimodal(prompt.prompt_text, prompt.images, config.generation)
+        except Exception as exc:
+            if is_cuda_oom_error(exc):
+                clear_cuda_cache()
+                diagnostics = cuda_oom_diagnostics(
+                    exc,
+                    num_images=len(prompt.images),
+                    max_new_tokens=getattr(config.generation, "max_new_tokens", None),
+                )
+                write_general_error_response(
+                    request_dir,
+                    diagnostics,
+                    prompt=prompt.prompt_text,
+                    latency_seconds=time.perf_counter() - start,
+                )
+                raise HTTPException(status_code=507, detail=diagnostics) from exc
+            raise HTTPException(status_code=500, detail=f"Emu3.5 generation failed: {exc}") from exc
+        operation_type = adapter.parse_operation_type(result.get("raw_text", ""))
         generated_images = list(result.get("images") or [])
         if not generated_images and result.get("image") is not None:
             generated_images = [result["image"]]
@@ -153,7 +202,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             )
             debug_events_path = str(debug_path)
         response = {
-            "operation_type": result.get("operation_type"),
+            "operation_type": operation_type,
             "raw_text": result.get("raw_text", ""),
             "raw_text_missing": result.get("raw_text_missing", not bool(result.get("raw_text", ""))),
             "image_base64": image_to_base64(generated_images[0]) if generated_images else None,
@@ -179,6 +228,78 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         (request_dir / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
         return response
 
+    @app.post("/general/generate")
+    async def general_generate(
+        prompt: str = Form(...),
+        images: list[UploadFile] = File(default=[]),
+    ) -> dict[str, Any]:
+        adapter = _require_adapter(app)
+        uploads = list(images or [])
+        if len(uploads) > MAX_GENERAL_INPUT_IMAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"General Emu3.5 mode accepts at most {MAX_GENERAL_INPUT_IMAGES} input images.",
+            )
+
+        request_id = uuid.uuid4().hex
+        request_dir = artifact_root / "general" / request_id
+        request_dir.mkdir(parents=True, exist_ok=True)
+        start = time.perf_counter()
+
+        input_images: list[Image.Image] = []
+        for index, upload in enumerate(uploads):
+            image = await _upload_to_image(upload)
+            save_image(image, request_dir / f"input_{index:03d}.png")
+            input_images.append(resize_pad_image(image, config.model.image_size))
+
+        try:
+            result = adapter.generate_multimodal(prompt, input_images, config.generation)
+        except Exception as exc:
+            if is_cuda_oom_error(exc):
+                clear_cuda_cache()
+                diagnostics = cuda_oom_diagnostics(
+                    exc,
+                    num_images=len(input_images),
+                    max_new_tokens=getattr(config.generation, "max_new_tokens", None),
+                )
+                write_general_error_response(
+                    request_dir,
+                    diagnostics,
+                    prompt=prompt,
+                    latency_seconds=time.perf_counter() - start,
+                )
+                raise HTTPException(status_code=507, detail=diagnostics) from exc
+            raise HTTPException(status_code=500, detail=f"Emu3.5 generation failed: {exc}") from exc
+
+        saved = save_general_result(
+            result,
+            request_dir,
+            prompt=prompt,
+            input_image_count=len(input_images),
+            latency_seconds=time.perf_counter() - start,
+            save_debug_events=bool(getattr(config.generation, "save_debug_events", True)),
+        )
+        generated_images = generated_images_from_result(result)
+        image_path = saved.get("image_path")
+        image_url = _artifact_url(artifact_root, image_path) if image_path else None
+        response = {
+            "raw_text": saved.get("raw_text", ""),
+            "image_url": image_url,
+            "image_base64": image_to_base64(generated_images[0]) if generated_images else None,
+            "generated_image_paths": saved.get("generated_image_paths", []),
+            "num_generated_images": len(generated_images),
+            "metadata": {
+                **(saved.get("metadata") or {}),
+                "request_id": request_id,
+                "input_image_count": len(input_images),
+                "latency_seconds": saved.get("latency_seconds"),
+                "debug_events_path": saved.get("debug_events_path"),
+            },
+            "latency_seconds": saved.get("latency_seconds"),
+        }
+        (request_dir / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+        return response
+
     @app.post("/reload_kb")
     async def reload_kb() -> dict[str, Any]:
         app.state.retriever = RagRetriever(config.rag.kb_dir, config.rag)
@@ -198,6 +319,17 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             raise HTTPException(status_code=400, detail=f"Invalid image upload {upload.filename}: {exc}") from exc
 
     return app
+
+
+def _artifact_url(artifact_root: Path, path: str | None) -> str | None:
+    if not path:
+        return None
+    target = Path(path).resolve()
+    try:
+        relative = target.relative_to(artifact_root.resolve())
+    except ValueError:
+        return None
+    return f"/artifacts/{relative.as_posix()}"
 
 
 def _require_adapter(app: Any) -> Any:

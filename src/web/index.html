@@ -3,16 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Vision CAD Emu3.5 RAG Demo</title>
+  <title>Emu3.5 General + CAD-RAG Demo</title>
   <style>
     :root {
-      --bg: #f5f6f3;
+      --bg: #f4f6f7;
       --panel: #ffffff;
       --ink: #171717;
-      --muted: #656b70;
-      --line: #d8ddd8;
-      --accent: #0b7f82;
-      --warn: #9a5b00;
+      --muted: #5d6670;
+      --line: #d8dee4;
+      --accent: #0b776a;
+      --accent-strong: #075c55;
+      --action: #a84b2a;
+      --warn: #955900;
+      --error: #9f2323;
     }
     * { box-sizing: border-box; }
     body {
@@ -24,15 +27,38 @@
     header {
       background: var(--panel);
       border-bottom: 1px solid var(--line);
-      padding: 18px 24px;
+      padding: 16px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
     }
     h1 { margin: 0; font-size: 20px; letter-spacing: 0; }
-    main { max-width: 1360px; margin: 0 auto; padding: 22px 24px; }
-    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+    h2 { margin: 0 0 12px; font-size: 16px; letter-spacing: 0; }
+    main { max-width: 1380px; margin: 0 auto; padding: 22px 24px; }
+    .status { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; text-align: right; }
+    .tabs {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      margin-bottom: 18px;
+    }
+    .tab {
+      min-width: 150px;
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: var(--muted);
+      background: transparent;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tab.active { color: white; background: var(--accent); }
+    .mode-panel[hidden] { display: none; }
+    .layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 18px; align-items: start; }
     form, .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -50,18 +76,21 @@
       color: var(--ink);
       background: white;
     }
-    textarea { min-height: 96px; resize: vertical; }
-    button {
+    textarea { min-height: 128px; resize: vertical; line-height: 1.45; }
+    button.submit {
       border: 0;
       border-radius: 6px;
       padding: 11px 12px;
       color: white;
       background: var(--accent);
-      font-weight: 700;
+      font-weight: 750;
       cursor: pointer;
+      min-height: 42px;
     }
+    button.submit.secondary { background: var(--action); }
     button:disabled { opacity: .55; cursor: wait; }
     .images { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .general-output { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 14px; align-items: start; }
     figure {
       margin: 0;
       background: var(--panel);
@@ -80,20 +109,25 @@
       width: 100%;
       aspect-ratio: 1 / 1;
       object-fit: contain;
-      background: #111;
+      background: #101214;
     }
     .result { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; }
-    .metric { min-width: 170px; }
-    .metric b { display: block; color: var(--muted); font-size: 12px; font-weight: 550; }
-    .metric span { display: block; font-size: 18px; font-weight: 750; overflow-wrap: anywhere; }
+    .metric { min-width: 160px; max-width: 260px; }
+    .metric b { display: block; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .metric span { display: block; font-size: 18px; font-weight: 760; overflow-wrap: anywhere; }
     .notice {
       margin: 14px 0;
       padding: 10px 12px;
       border-radius: 6px;
-      background: #fff7e6;
+      background: #fff7e8;
       color: var(--warn);
       border: 1px solid #ead39a;
       display: none;
+    }
+    .notice.error {
+      background: #fff0f0;
+      color: var(--error);
+      border-color: #efb8b8;
     }
     .examples { margin-top: 16px; display: grid; gap: 10px; }
     .example {
@@ -103,79 +137,174 @@
       padding: 12px;
     }
     .example strong { display: block; margin-bottom: 4px; }
-    .status { color: var(--muted); font-size: 14px; }
+    .text-block {
+      min-height: 190px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: 1.45;
+      margin: 0;
+      color: var(--ink);
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: var(--ink);
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    .file-list {
+      color: var(--muted);
+      font-size: 12px;
+      min-height: 18px;
+      overflow-wrap: anywhere;
+    }
     @media (max-width: 980px) {
-      .layout { grid-template-columns: 1fr; }
+      header { align-items: flex-start; flex-direction: column; }
+      .status { text-align: left; }
+      .layout, .general-output { grid-template-columns: 1fr; }
       .images { grid-template-columns: 1fr; }
+      .tabs { display: grid; grid-template-columns: 1fr; width: 100%; }
+      .tab { width: 100%; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Vision CAD Emu3.5 RAG Demo</h1>
+    <h1>Emu3.5 General + CAD-RAG Demo</h1>
     <span id="status" class="status">checking...</span>
   </header>
   <main>
-    <div class="layout">
-      <form id="form">
-        <label>Final snapshot
-          <input id="final" name="final_snapshot" type="file" accept="image/*" required />
-        </label>
-        <label>Previous depth map
-          <input id="prev" name="prev_depth_map" type="file" accept="image/*" required />
-        </label>
-        <label>Top K
-          <input id="topK" name="top_k" type="number" min="0" max="10" value="3" />
-        </label>
-        <label>Extra prompt
-          <textarea id="promptExtra" name="prompt_extra"></textarea>
-        </label>
-        <button id="submit" type="submit">Generate</button>
-      </form>
-      <section>
-        <div class="images">
-          <figure>
-            <figcaption>Query final snapshot</figcaption>
-            <img id="finalPreview" alt="" />
-          </figure>
-          <figure>
-            <figcaption>Query previous depth map</figcaption>
-            <img id="prevPreview" alt="" />
-          </figure>
-          <figure>
-            <figcaption>Generated overlay</figcaption>
-            <img id="outPreview" alt="" />
-          </figure>
-        </div>
-        <div id="notice" class="notice"></div>
-        <div class="panel result">
-          <div class="metric"><b>Operation type</b><span id="op">-</span></div>
-          <div class="metric"><b>Latency</b><span id="latency">-</span></div>
-          <div class="metric"><b>Mode</b><span id="mode">-</span></div>
-          <div class="metric"><b>KB items</b><span id="kbCount">-</span></div>
-          <div class="metric"><b>KB directory</b><span id="kbDir">-</span></div>
-          <div class="metric"><b>Model</b><span id="modelState">-</span></div>
-        </div>
-        <div class="examples" id="examples"></div>
-      </section>
-    </div>
+    <nav class="tabs" aria-label="Modes">
+      <button class="tab active" type="button" data-tab="cad">CAD-RAG Mode</button>
+      <button class="tab" type="button" data-tab="general">General Emu3.5</button>
+    </nav>
+
+    <section id="cadPanel" class="mode-panel">
+      <div class="layout">
+        <form id="cadForm">
+          <label>Final snapshot
+            <input id="final" name="final_snapshot" type="file" accept="image/*" required />
+          </label>
+          <label>Previous depth map
+            <input id="prev" name="prev_depth_map" type="file" accept="image/*" required />
+          </label>
+          <label>Top K
+            <input id="topK" name="top_k" type="number" min="0" max="10" value="3" />
+          </label>
+          <label>Extra prompt
+            <textarea id="promptExtra" name="prompt_extra"></textarea>
+          </label>
+          <button id="cadSubmit" class="submit" type="submit">Generate CAD Preview</button>
+        </form>
+        <section>
+          <div class="images">
+            <figure>
+              <figcaption>Query final snapshot</figcaption>
+              <img id="finalPreview" alt="" />
+            </figure>
+            <figure>
+              <figcaption>Query previous depth map</figcaption>
+              <img id="prevPreview" alt="" />
+            </figure>
+            <figure>
+              <figcaption>Generated overlay</figcaption>
+              <img id="outPreview" alt="" />
+            </figure>
+          </div>
+          <div id="cadNotice" class="notice"></div>
+          <div class="panel result">
+            <div class="metric"><b>Operation type</b><span id="op">-</span></div>
+            <div class="metric"><b>Latency</b><span id="cadLatency">-</span></div>
+            <div class="metric"><b>Mode</b><span id="cadMode">-</span></div>
+            <div class="metric"><b>KB items</b><span id="kbCount">-</span></div>
+            <div class="metric"><b>KB directory</b><span id="kbDir">-</span></div>
+            <div class="metric"><b>Model</b><span id="modelState">-</span></div>
+          </div>
+          <div class="examples" id="examples"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="generalPanel" class="mode-panel" hidden>
+      <div class="layout">
+        <form id="generalForm">
+          <label>Prompt
+            <textarea id="generalPrompt" name="prompt" required></textarea>
+          </label>
+          <label>Images
+            <input id="generalImages" name="images" type="file" accept="image/*" multiple />
+          </label>
+          <div id="generalFiles" class="file-list"></div>
+          <button id="generalSubmit" class="submit secondary" type="submit">Run General Emu3.5</button>
+        </form>
+        <section>
+          <div class="general-output">
+            <figure>
+              <figcaption>Generated image</figcaption>
+              <img id="generalImage" alt="" />
+            </figure>
+            <div class="panel">
+              <h2>Raw Text</h2>
+              <div id="generalText" class="text-block">-</div>
+            </div>
+          </div>
+          <div id="generalNotice" class="notice"></div>
+          <div class="panel result">
+            <div class="metric"><b>Latency</b><span id="generalLatency">-</span></div>
+            <div class="metric"><b>Generated images</b><span id="generalImageCount">-</span></div>
+            <div class="metric"><b>Input images</b><span id="generalInputCount">-</span></div>
+          </div>
+          <div class="panel" style="margin-top: 14px;">
+            <h2>Metadata</h2>
+            <pre id="generalMetadata">{}</pre>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
   <script>
-    const form = document.getElementById('form');
+    const tabs = document.querySelectorAll('.tab');
+    const cadPanel = document.getElementById('cadPanel');
+    const generalPanel = document.getElementById('generalPanel');
+    const cadForm = document.getElementById('cadForm');
+    const generalForm = document.getElementById('generalForm');
     const finalInput = document.getElementById('final');
     const prevInput = document.getElementById('prev');
-    const submit = document.getElementById('submit');
-    const notice = document.getElementById('notice');
+    const cadSubmit = document.getElementById('cadSubmit');
+    const generalSubmit = document.getElementById('generalSubmit');
+    const cadNotice = document.getElementById('cadNotice');
+    const generalNotice = document.getElementById('generalNotice');
     const examples = document.getElementById('examples');
+    const generalImages = document.getElementById('generalImages');
+    const generalFiles = document.getElementById('generalFiles');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((item) => item.classList.toggle('active', item === tab));
+        const showCad = tab.dataset.tab === 'cad';
+        cadPanel.hidden = !showCad;
+        generalPanel.hidden = showCad;
+      });
+    });
+
     const setPreview = (input, image) => {
       if (input.files && input.files[0]) image.src = URL.createObjectURL(input.files[0]);
     };
     finalInput.addEventListener('change', () => setPreview(finalInput, document.getElementById('finalPreview')));
     prevInput.addEventListener('change', () => setPreview(prevInput, document.getElementById('prevPreview')));
 
-    function showNotice(text) {
-      notice.textContent = text || '';
-      notice.style.display = text ? 'block' : 'none';
+    function showNotice(el, text, isError = false) {
+      el.textContent = text || '';
+      el.classList.toggle('error', Boolean(isError));
+      el.style.display = text ? 'block' : 'none';
+    }
+
+    function setImageFromBase64(image, value) {
+      if (value) {
+        image.src = `data:image/png;base64,${value}`;
+      } else {
+        image.removeAttribute('src');
+      }
     }
 
     function renderExamples(items) {
@@ -199,40 +328,86 @@
     }
 
     fetch('/health').then(r => r.json()).then(j => {
-      document.getElementById('status').textContent = j.kb_empty
-        ? 'KB empty, zero-shot ready'
-        : `KB ready: ${j.kb_item_count} items`;
-      document.getElementById('kbCount').textContent = String(j.kb_item_count);
+      const modes = Array.isArray(j.modes_supported) ? j.modes_supported.join(', ') : 'cad_rag, general';
+      document.getElementById('status').textContent = `${j.model_loaded ? 'model loaded' : 'model not loaded'} | modes: ${modes}`;
+      document.getElementById('kbCount').textContent = String(j.kb_item_count ?? '-');
       document.getElementById('kbDir').textContent = j.kb_dir || '-';
-      document.getElementById('mode').textContent = j.kb_empty ? 'zero-shot' : 'RAG';
+      document.getElementById('cadMode').textContent = j.kb_empty ? 'zero-shot' : 'RAG';
       document.getElementById('modelState').textContent = j.model_loaded ? 'loaded' : 'not loaded';
-      if (j.kb_empty) showNotice('Knowledge base is empty. The system is running in zero-shot mode.');
+      if (j.kb_empty) showNotice(cadNotice, 'Knowledge base is empty. CAD-RAG will run zero-shot.');
     }).catch(() => {
       document.getElementById('status').textContent = 'server unavailable';
     });
 
-    form.addEventListener('submit', async (event) => {
+    cadForm.addEventListener('submit', async (event) => {
       event.preventDefault();
-      submit.disabled = true;
-      showNotice('');
-      const data = new FormData(form);
+      cadSubmit.disabled = true;
+      showNotice(cadNotice, '');
+      const data = new FormData(cadForm);
       try {
-        const response = await fetch('/generate', { method: 'POST', body: data });
+        const response = await fetch('/cad/generate', { method: 'POST', body: data });
         const json = await response.json();
         if (!response.ok) throw new Error(json.detail || 'request failed');
         document.getElementById('op').textContent = json.operation_type || '-';
-        document.getElementById('latency').textContent = `${json.latency_seconds.toFixed(2)} s`;
-        document.getElementById('mode').textContent = json.zero_shot ? 'zero-shot' : 'RAG';
+        document.getElementById('cadLatency').textContent = `${Number(json.latency_seconds || 0).toFixed(2)} s`;
+        document.getElementById('cadMode').textContent = json.zero_shot ? 'zero-shot' : 'RAG';
         if (json.kb_dir) document.getElementById('kbDir').textContent = json.kb_dir;
-        if (json.image_base64) {
-          document.getElementById('outPreview').src = `data:image/png;base64,${json.image_base64}`;
-        }
+        setImageFromBase64(document.getElementById('outPreview'), json.image_base64);
         renderExamples(json.retrieved_examples || []);
-        if (json.zero_shot) showNotice('Knowledge base is empty. The system is running in zero-shot mode.');
+        if (json.zero_shot) showNotice(cadNotice, 'Knowledge base is empty. CAD-RAG ran zero-shot.');
+        if (json.image_missing) showNotice(cadNotice, 'No generated overlay image returned. Debug artifacts were saved.');
       } catch (err) {
-        showNotice(err.message);
+        showNotice(cadNotice, err.message, true);
       } finally {
-        submit.disabled = false;
+        cadSubmit.disabled = false;
+      }
+    });
+
+    generalImages.addEventListener('change', () => {
+      const files = Array.from(generalImages.files || []);
+      generalFiles.textContent = files.map(file => file.name).join(', ');
+      if (files.length > 5) {
+        showNotice(generalNotice, 'General mode accepts at most 5 images.', true);
+      } else if (files.length >= 4) {
+        showNotice(generalNotice, 'Many images increase memory use. Reduce images if CUDA memory is tight.');
+      } else {
+        showNotice(generalNotice, '');
+      }
+    });
+
+    generalForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const files = Array.from(generalImages.files || []);
+      if (files.length > 5) {
+        showNotice(generalNotice, 'General mode accepts at most 5 images.', true);
+        return;
+      }
+      generalSubmit.disabled = true;
+      showNotice(generalNotice, '');
+      const data = new FormData();
+      data.append('prompt', document.getElementById('generalPrompt').value);
+      files.forEach(file => data.append('images', file));
+      const started = performance.now();
+      try {
+        const response = await fetch('/general/generate', { method: 'POST', body: data });
+        const json = await response.json();
+        if (!response.ok) {
+          const detail = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
+          throw new Error(detail || 'request failed');
+        }
+        const latency = json.latency_seconds ?? ((performance.now() - started) / 1000);
+        document.getElementById('generalLatency').textContent = `${Number(latency || 0).toFixed(2)} s`;
+        document.getElementById('generalImageCount').textContent = String(json.num_generated_images ?? 0);
+        document.getElementById('generalInputCount').textContent = String(files.length);
+        document.getElementById('generalText').textContent = json.raw_text || '(no text output)';
+        document.getElementById('generalMetadata').textContent = JSON.stringify(json.metadata || {}, null, 2);
+        setImageFromBase64(document.getElementById('generalImage'), json.image_base64);
+        if (!json.image_base64 && json.image_url) document.getElementById('generalImage').src = json.image_url;
+        if (!json.image_base64 && !json.image_url) showNotice(generalNotice, 'No generated image returned for this request.');
+      } catch (err) {
+        showNotice(generalNotice, err.message, true);
+      } finally {
+        generalSubmit.disabled = false;
       }
     });
   </script>

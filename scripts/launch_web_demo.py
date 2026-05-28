@@ -32,7 +32,7 @@ from utils.logging import setup_logging
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Launch the remote-accessible RAG web demo.")
+    parser = argparse.ArgumentParser(description="Launch the remote-accessible CAD-RAG and general Emu3.5 web demo.")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "rag.yaml"))
     parser.add_argument("--model-root", default=None)
     parser.add_argument("--kb-dir", default=None)

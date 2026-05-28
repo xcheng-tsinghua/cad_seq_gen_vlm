@@ -213,7 +213,7 @@ class Emu35Adapter:
             for image in images
         )
         full_prompt = self._format_multimodal_prompt(prompt_text, image_str)
-        unconditional_prompt = self._format_multimodal_prompt("You are a helpful CAD modeling assistant.", image_str)
+        unconditional_prompt = self._format_multimodal_prompt("", image_str)
 
         import torch
 
@@ -264,12 +264,15 @@ class Emu35Adapter:
         if event_debug:
             logger.debug("Emu3.5 generation event summaries: %s", event_debug)
         if not resized_images:
-            logger.warning("No PIL image was found in Emu3.5 generation events.")
+            logger.info("No PIL image was found in Emu3.5 generation events.")
+        debug = {
+            "events": event_debug,
+            "save_debug_events": bool(getattr(runtime_cfg, "save_debug_events", True)),
+        }
         return {
-            "operation_type": self.parse_operation_type(raw_text),
-            "image": image,
-            "images": resized_images,
             "raw_text": raw_text,
+            "images": resized_images,
+            "image": image,
             "raw_text_missing": not bool(raw_text),
             "metadata": {
                 "gpu": get_gpu_info(),
@@ -279,6 +282,7 @@ class Emu35Adapter:
                 "num_generated_images": len(resized_images),
                 "event_summaries": event_debug if getattr(runtime_cfg, "save_debug_events", True) else [],
             },
+            "debug": debug,
             "emu35_events_debug": event_debug,
         }
 

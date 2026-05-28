@@ -70,6 +70,6 @@ api:
     - "*"
 
 web:
-  title: "Vision CAD Emu3.5 RAG Demo"
+  title: "Emu3.5 General + CAD-RAG Demo"
   allow_upload_kb: false
   show_retrieved_examples: true

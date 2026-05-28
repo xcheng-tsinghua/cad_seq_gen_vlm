@@ -3,7 +3,6 @@ model:
   model_id_or_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
   tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5"
   vision_tokenizer_path: "/root/autodl-tmp/data/BAAI/Emu3.5-VisionTokenizer"
-  # Official Emu3.5 runtime source checkout, resolved relative to the project root.
   emu_repo_path: "third_party/Emu3.5"
   local_files_only: true
   trust_remote_code: true
@@ -13,33 +12,16 @@ model:
   clear_transformers_remote_code_cache: true
   patch_tokenizer_source: true
 
-data:
-  dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img"
-  manifest_dir: "data/manifests"
-
-rag:
-  kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
-  embedding_backend: "simple"
-  vector_backend: "numpy"
-  top_k: 6
-  max_reference_images: 3
-  include_example_outputs: true
-  include_example_final_snapshot: false
-  include_example_prev_depth_map: true
-  include_example_overlayed_all: true
-  allow_empty_kb: true
-
 generation:
-  # 32x32 image tokens require 1024 visual tokens plus text/header/end tokens.
   max_new_tokens: 1536
   max_position_embeddings: 32768
   image_area: 262144
   target_height: 512
   target_width: 512
+  do_sample: false
   temperature: null
   top_p: null
   top_k: null
-  do_sample: false
   num_beams: 1
   repetition_penalty: 1.0
   length_penalty: 1.0
@@ -54,9 +36,9 @@ generation:
   image_top_p: 0.9
   image_temperature: 1.0
   text_top_k: 0
-  text_top_p: 0.9
-  text_temperature: 0.2
-  max_img_token: 4096
+  text_top_p: 1.0
+  text_temperature: 1.0
+  max_img_token: 2048
   stream: false
   streaming: false
   use_differential_sampling: true
@@ -71,5 +53,3 @@ api:
 
 web:
   title: "Emu3.5 General + CAD-RAG Demo"
-  allow_upload_kb: false
-  show_retrieved_examples: true

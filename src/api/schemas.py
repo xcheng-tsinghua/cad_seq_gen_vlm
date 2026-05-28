@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
+    modes_supported: list[str] = Field(default_factory=list)
     kb_dir: str
     kb_loaded: bool
     kb_empty: bool
@@ -23,6 +24,16 @@ class GenerateResponse(BaseModel):
     zero_shot: bool
     metadata: dict[str, Any]
     latency_seconds: float
+
+
+class GeneralGenerateResponse(BaseModel):
+    raw_text: str
+    image_url: str | None
+    image_base64: str | None
+    generated_image_paths: list[str]
+    num_generated_images: int
+    metadata: dict[str, Any]
+    latency_seconds: float | None = None
 
 
 class RetrieveResponse(BaseModel):

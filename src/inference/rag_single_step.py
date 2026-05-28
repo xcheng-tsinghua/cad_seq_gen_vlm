@@ -52,12 +52,13 @@ def run_rag_single_step(
         operation_type_hint=operation_type_hint,
     )
     result = adapter.generate_multimodal(prompt.prompt_text, prompt.images, config.generation)
+    operation_type = adapter.parse_operation_type(result.get("raw_text", ""))
     latency = time.perf_counter() - start
     zero_shot = len(retrieved) == 0
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "operation_type.txt").write_text(result.get("operation_type", ""), encoding="utf-8")
+    (out / "operation_type.txt").write_text(operation_type, encoding="utf-8")
     (out / "prompt.txt").write_text(prompt.prompt_text, encoding="utf-8")
     (out / "retrieved_examples.json").write_text(json.dumps(prompt.retrieved_examples, indent=2, default=str), encoding="utf-8")
 
@@ -90,7 +91,7 @@ def run_rag_single_step(
         debug_events_path = str(debug_path)
 
     response = {
-        "operation_type": result.get("operation_type"),
+        "operation_type": operation_type,
         "raw_text": result.get("raw_text", ""),
         "raw_text_missing": result.get("raw_text_missing", not bool(result.get("raw_text", ""))),
         "metadata": result.get("metadata", {}),
