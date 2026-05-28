@@ -43,13 +43,13 @@ nohup 末尾添加该命令可以指定log文件
 git branch
 
 # 2. 基于当前分支创建新分支
-git branch emu35_rag_valid3
+git branch emu35_rag_v4
 
 # 3. 切换到新分支
-git checkout emu35_rag_valid3
+git checkout emu35_rag_v4
 
 # 4. 将本地分支关联到远程分支，并推送新分支到远程仓库
-git push -u origin emu35_rag_valid3
+git push -u origin emu35_rag_v4
 
 # 5. (可选) 如果只是备份代码到其他分支，需要在备份后切换回主分支 (或之前的分支)
 git checkout main
