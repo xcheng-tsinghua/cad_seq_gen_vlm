@@ -51,6 +51,6 @@ git checkout emu35_rag_valid3
 # 4. 将本地分支关联到远程分支，并推送新分支到远程仓库
 git push -u origin emu35_rag_valid3
 
-
-
+# 5. (可选) 如果只是备份代码到其他分支，需要在备份后切换回主分支 (或之前的分支)
+git checkout main
 
