@@ -21,11 +21,10 @@ DRAWING_RULES = """Preview drawing rules:
 - Keep the previous state depth map unchanged as the background.
 - Apply a semi-transparent yellow mask on the sketch reference plane.
 - Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
-- Draw the colored incremental wireframe showing the local entity created, modified, or removed in this step.
-- Draw red solid lines for the reference 2D sketch used in the current operation.
-- Draw blue solid lines for the termination face contour of the local entity.
-- Draw green solid lines for edges of the newly added solid entity in this step.
-- Draw magenta solid lines for edges of the entity cut or removed in this step."""
+- Draw the colored_incremental_wireframe showing the local entity created, modified, or removed in this step.
+- colored_incremental_wireframe part1: Draw red solid lines for the reference 2D sketch used in the current operation.
+- colored_incremental_wireframe part2: Draw blue solid lines for the termination face contour of the local entity.
+- colored_incremental_wireframe part3: Draw green solid lines for other edges of the local entity."""
 
 
 @dataclass
