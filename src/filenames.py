@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 DATASET_FINAL_SNAPSHOT = "final_snapshot.png"
-DATASET_PREV_DEPTH_MAP = "prev_depth_map.png"
-DATASET_CURRENT_DEPTH_MAP = "current_depth_map.png"
+DATASET_PREV_DEPTH_MAP = "prev_depth_map_with_edge.png"
+DATASET_CURRENT_DEPTH_MAP = "current_depth_map_with_edge.png"
 DATASET_OPERATION_PARAM = "operation_param.json"
-DATASET_OVERLAYED_ALL = "overlayed_all.png"
+DATASET_OVERLAYED_ALL = "modeling_preview.png"
 
 REQUIRED_STEP_FILES = (
     DATASET_PREV_DEPTH_MAP,
