@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 
 from config import RagConfig
+from filenames import KB_EMBEDDINGS, KB_ITEMS
 from rag.prompt_builder import RagPromptBuilder
 from rag.retriever import RagRetriever
 
@@ -24,8 +25,8 @@ def test_default_kb_dir_is_absolute_autodl_path():
 def test_empty_kb_items_jsonl_is_empty(tmp_path):
     kb = tmp_path / "kb"
     kb.mkdir()
-    (kb / "kb_items.jsonl").write_text("", encoding="utf-8")
-    np.save(kb / "embeddings.npy", np.zeros((0, 10), dtype=np.float32))
+    (kb / KB_ITEMS).write_text("", encoding="utf-8")
+    np.save(kb / KB_EMBEDDINGS, np.zeros((0, 10), dtype=np.float32))
     retriever = RagRetriever(kb, RagConfig())
     assert retriever.is_empty()
 

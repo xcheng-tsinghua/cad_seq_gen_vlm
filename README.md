@@ -35,6 +35,16 @@ cad_seq_gen_vlm/
 
 Large local folders such as `data/`, `outputs/`, `checkpoints/`, `pretrained_lm/`, and `third_party/` are intentionally ignored. Keep model weights and generated artifacts outside Git.
 
+## Filename Configuration
+
+Project dataset, output artifact, manifest, and KB filenames are centralized in:
+
+```text
+src/filenames.py
+```
+
+Change names such as `final_snapshot.png`, `prev_depth_map.png`, `overlayed_all.png`, `operation_param.json`, `response.json`, or `kb_items.jsonl` there instead of editing scattered call sites.
+
 ## Environment Setup
 
 The validated runtime uses conda, Python `3.12.13`, PyTorch `2.11.0+cu128`, and Transformers `4.48.2`.

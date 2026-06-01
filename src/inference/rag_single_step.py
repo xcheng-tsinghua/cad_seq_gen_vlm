@@ -6,6 +6,16 @@ from pathlib import Path
 from typing import Any
 
 from config import AppConfig
+from filenames import (
+    DATASET_OVERLAYED_ALL,
+    OUTPUT_EMU35_EVENTS_DEBUG,
+    OUTPUT_GENERATED_IMAGES_DIR,
+    OUTPUT_OPERATION_TYPE,
+    OUTPUT_PROMPT,
+    OUTPUT_RESPONSE,
+    OUTPUT_RETRIEVED_EXAMPLES,
+    generated_image_sequence_name,
+)
 from model_paths import apply_model_root_override, ensure_default_local_model_paths, validate_local_model_paths
 from models.emu35_adapter import Emu35Adapter
 from rag.prompt_builder import RagPromptBuilder
@@ -58,9 +68,9 @@ def run_rag_single_step(
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "operation_type.txt").write_text(operation_type, encoding="utf-8")
-    (out / "prompt.txt").write_text(prompt.prompt_text, encoding="utf-8")
-    (out / "retrieved_examples.json").write_text(json.dumps(prompt.retrieved_examples, indent=2, default=str), encoding="utf-8")
+    (out / OUTPUT_OPERATION_TYPE).write_text(operation_type, encoding="utf-8")
+    (out / OUTPUT_PROMPT).write_text(prompt.prompt_text, encoding="utf-8")
+    (out / OUTPUT_RETRIEVED_EXAMPLES).write_text(json.dumps(prompt.retrieved_examples, indent=2, default=str), encoding="utf-8")
 
     generated_images = list(result.get("images") or [])
     if not generated_images and result.get("image") is not None:
@@ -68,19 +78,19 @@ def run_rag_single_step(
     generated_image_paths: list[str] = []
     image_path: str | None = None
     if generated_images:
-        overlay_path = out / "overlayed_all.png"
+        overlay_path = out / DATASET_OVERLAYED_ALL
         save_image(generated_images[0], overlay_path)
         image_path = str(overlay_path)
-        generated_dir = out / "generated_images"
+        generated_dir = out / OUTPUT_GENERATED_IMAGES_DIR
         for index, image in enumerate(generated_images):
-            target = generated_dir / f"image_{index:03d}.png"
+            target = generated_dir / generated_image_sequence_name(index)
             save_image(image, target)
             generated_image_paths.append(str(target))
 
     debug_events = result.get("emu35_events_debug") or result.get("metadata", {}).get("event_summaries") or []
     debug_events_path: str | None = None
     if getattr(config.generation, "save_debug_events", True) or not generated_images:
-        debug_path = out / "emu35_events_debug.json"
+        debug_path = out / OUTPUT_EMU35_EVENTS_DEBUG
         debug_payload = {
             "num_generation_events": result.get("metadata", {}).get("num_generation_events", len(debug_events)),
             "num_generated_images": len(generated_images),
@@ -113,7 +123,7 @@ def run_rag_single_step(
                 "image_missing_reason": "No PIL image was found in Emu3.5 generation events.",
             }
         )
-    (out / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+    (out / OUTPUT_RESPONSE).write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
     if generated_images:
         print(f"[INFO] Saved generated preview image: {image_path}")
     else:

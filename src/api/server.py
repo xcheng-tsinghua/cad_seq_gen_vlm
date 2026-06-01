@@ -9,6 +9,17 @@ from typing import Any
 from PIL import Image
 
 from config import AppConfig
+from filenames import (
+    DATASET_FINAL_SNAPSHOT,
+    DATASET_OVERLAYED_ALL,
+    DATASET_PREV_DEPTH_MAP,
+    OUTPUT_EMU35_EVENTS_DEBUG,
+    OUTPUT_GENERATED_IMAGES_DIR,
+    OUTPUT_PROMPT,
+    OUTPUT_RESPONSE,
+    api_input_image_name,
+    generated_image_sequence_name,
+)
 from inference.general import (
     MAX_GENERAL_INPUT_IMAGES,
     clear_cuda_cache,
@@ -141,8 +152,8 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         start = time.perf_counter()
         final_image = await _upload_to_image(final_snapshot)
         prev_image = await _upload_to_image(prev_depth_map)
-        save_image(final_image, request_dir / "final_snapshot.png")
-        save_image(prev_image, request_dir / "prev_depth_map.png")
+        save_image(final_image, request_dir / DATASET_FINAL_SNAPSHOT)
+        save_image(prev_image, request_dir / DATASET_PREV_DEPTH_MAP)
         examples = app.state.retriever.retrieve(final_image, prev_image, top_k=top_k or config.rag.top_k)
         prompt = RagPromptBuilder(config.rag, image_size=config.model.image_size).build(
             final_image,
@@ -175,18 +186,18 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         image_path: str | None = None
         generated_image_paths: list[str] = []
         if generated_images:
-            overlay_path = request_dir / "overlayed_all.png"
+            overlay_path = request_dir / DATASET_OVERLAYED_ALL
             save_image(generated_images[0], overlay_path)
             image_path = str(overlay_path)
-            generated_dir = request_dir / "generated_images"
+            generated_dir = request_dir / OUTPUT_GENERATED_IMAGES_DIR
             for index, image in enumerate(generated_images):
-                target = generated_dir / f"image_{index:03d}.png"
+                target = generated_dir / generated_image_sequence_name(index)
                 save_image(image, target)
                 generated_image_paths.append(str(target))
         debug_events = result.get("emu35_events_debug") or result.get("metadata", {}).get("event_summaries") or []
         debug_events_path: str | None = None
         if getattr(config.generation, "save_debug_events", True) or not generated_images:
-            debug_path = request_dir / "emu35_events_debug.json"
+            debug_path = request_dir / OUTPUT_EMU35_EVENTS_DEBUG
             debug_path.write_text(
                 json.dumps(
                     {
@@ -224,8 +235,8 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
                     "image_missing_reason": "No PIL image was found in Emu3.5 generation events.",
                 }
             )
-        (request_dir / "prompt.txt").write_text(prompt.prompt_text, encoding="utf-8")
-        (request_dir / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+        (request_dir / OUTPUT_PROMPT).write_text(prompt.prompt_text, encoding="utf-8")
+        (request_dir / OUTPUT_RESPONSE).write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
         return response
 
     @app.post("/general/generate")
@@ -249,7 +260,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
         input_images: list[Image.Image] = []
         for index, upload in enumerate(uploads):
             image = await _upload_to_image(upload)
-            save_image(image, request_dir / f"input_{index:03d}.png")
+            save_image(image, request_dir / api_input_image_name(index))
             input_images.append(resize_pad_image(image, config.model.image_size))
 
         try:
@@ -297,7 +308,7 @@ def create_app(config: AppConfig, checkpoint: str | Path | None = None) -> Any:
             },
             "latency_seconds": saved.get("latency_seconds"),
         }
-        (request_dir / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+        (request_dir / OUTPUT_RESPONSE).write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
         return response
 
     @app.post("/reload_kb")

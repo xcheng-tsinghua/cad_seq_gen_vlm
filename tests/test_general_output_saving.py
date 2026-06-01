@@ -4,6 +4,7 @@ import json
 
 from PIL import Image
 
+from filenames import OUTPUT_EMU35_EVENTS_DEBUG, OUTPUT_GENERATED_IMAGE, OUTPUT_PROMPT, OUTPUT_RAW_TEXT, OUTPUT_RESPONSE
 from inference.general import save_general_result
 
 
@@ -21,9 +22,9 @@ def test_save_general_text_only_result(tmp_path):
     assert response["raw_text"] == "hello from emu"
     assert response["num_generated_images"] == 0
     assert response["image_missing"] is True
-    assert (tmp_path / "raw_text.txt").read_text(encoding="utf-8") == "hello from emu"
-    assert not (tmp_path / "generated_image.png").exists()
-    assert (tmp_path / "emu35_events_debug.json").exists()
+    assert (tmp_path / OUTPUT_RAW_TEXT).read_text(encoding="utf-8") == "hello from emu"
+    assert not (tmp_path / OUTPUT_GENERATED_IMAGE).exists()
+    assert (tmp_path / OUTPUT_EMU35_EVENTS_DEBUG).exists()
 
 
 def test_save_general_image_only_result(tmp_path):
@@ -39,9 +40,9 @@ def test_save_general_image_only_result(tmp_path):
 
     assert response["raw_text_missing"] is True
     assert response["num_generated_images"] == 1
-    assert (tmp_path / "generated_image.png").exists()
-    saved = json.loads((tmp_path / "response.json").read_text(encoding="utf-8"))
-    assert saved["generated_image_paths"] == [str(tmp_path / "generated_image.png")]
+    assert (tmp_path / OUTPUT_GENERATED_IMAGE).exists()
+    saved = json.loads((tmp_path / OUTPUT_RESPONSE).read_text(encoding="utf-8"))
+    assert saved["generated_image_paths"] == [str(tmp_path / OUTPUT_GENERATED_IMAGE)]
 
 
 def test_save_general_text_and_image_result(tmp_path):
@@ -61,5 +62,5 @@ def test_save_general_text_and_image_result(tmp_path):
     assert response["raw_text_missing"] is False
     assert response["input_image_count"] == 2
     assert response["latency_seconds"] == 1.25
-    assert (tmp_path / "prompt.txt").read_text(encoding="utf-8") == "Describe and edit"
-    assert (tmp_path / "generated_image.png").exists()
+    assert (tmp_path / OUTPUT_PROMPT).read_text(encoding="utf-8") == "Describe and edit"
+    assert (tmp_path / OUTPUT_GENERATED_IMAGE).exists()

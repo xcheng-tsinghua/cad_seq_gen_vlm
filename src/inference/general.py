@@ -8,6 +8,15 @@ from typing import Any, Iterable
 from PIL import Image
 
 from config import AppConfig
+from filenames import (
+    OUTPUT_EMU35_EVENTS_DEBUG,
+    OUTPUT_GENERATED_IMAGE,
+    OUTPUT_GENERATED_IMAGES_DIR,
+    OUTPUT_PROMPT,
+    OUTPUT_RAW_TEXT,
+    OUTPUT_RESPONSE,
+    generated_image_sequence_name,
+)
 from model_paths import ensure_default_local_model_paths, validate_local_model_paths
 from models.emu35_adapter import Emu35Adapter
 from utils.image_io import load_image_rgb, resize_pad_image, save_image
@@ -77,22 +86,22 @@ def save_general_result(
     out.mkdir(parents=True, exist_ok=True)
 
     raw_text = str(result.get("raw_text", ""))
-    (out / "raw_text.txt").write_text(raw_text, encoding="utf-8")
+    (out / OUTPUT_RAW_TEXT).write_text(raw_text, encoding="utf-8")
     if prompt is not None:
-        (out / "prompt.txt").write_text(prompt, encoding="utf-8")
+        (out / OUTPUT_PROMPT).write_text(prompt, encoding="utf-8")
 
     generated_images = generated_images_from_result(result)
     image_path: str | None = None
     generated_image_paths: list[str] = []
     if len(generated_images) == 1:
-        target = out / "generated_image.png"
+        target = out / OUTPUT_GENERATED_IMAGE
         save_image(generated_images[0], target)
         image_path = str(target)
         generated_image_paths.append(str(target))
     elif len(generated_images) > 1:
-        generated_dir = out / "generated_images"
+        generated_dir = out / OUTPUT_GENERATED_IMAGES_DIR
         for index, image in enumerate(generated_images):
-            target = generated_dir / f"image_{index:03d}.png"
+            target = generated_dir / generated_image_sequence_name(index)
             save_image(image, target)
             generated_image_paths.append(str(target))
         image_path = generated_image_paths[0]
@@ -104,7 +113,7 @@ def save_general_result(
     }
     debug_events_path: str | None = None
     if save_debug_events or not generated_images:
-        debug_path = out / "emu35_events_debug.json"
+        debug_path = out / OUTPUT_EMU35_EVENTS_DEBUG
         debug_path.write_text(json.dumps(debug_payload, indent=2, default=str), encoding="utf-8")
         debug_events_path = str(debug_path)
 
@@ -120,7 +129,7 @@ def save_general_result(
         "latency_seconds": latency_seconds,
         "input_image_count": input_image_count,
     }
-    (out / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+    (out / OUTPUT_RESPONSE).write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
     return {**response, "image": generated_images[0] if generated_images else None}
 
 
@@ -134,7 +143,7 @@ def write_general_error_response(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     if prompt is not None:
-        (out / "prompt.txt").write_text(prompt, encoding="utf-8")
+        (out / OUTPUT_PROMPT).write_text(prompt, encoding="utf-8")
     response = {
         "raw_text": "",
         "raw_text_missing": True,
@@ -147,8 +156,8 @@ def write_general_error_response(
         "latency_seconds": latency_seconds,
         "error": diagnostics,
     }
-    (out / "raw_text.txt").write_text("", encoding="utf-8")
-    (out / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+    (out / OUTPUT_RAW_TEXT).write_text("", encoding="utf-8")
+    (out / OUTPUT_RESPONSE).write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
     return response
 
 

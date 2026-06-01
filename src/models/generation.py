@@ -7,6 +7,7 @@ from typing import Any
 from PIL import Image
 
 from config import GenerationConfig
+from filenames import DATASET_OVERLAYED_ALL, OUTPUT_OPERATION_TYPE, OUTPUT_RESPONSE
 from models.emu35_adapter import Emu35Adapter
 from utils.image_io import save_image
 
@@ -23,8 +24,8 @@ def generate_multimodal(
 def save_generation_result(result: dict[str, Any], output_dir: str | Path) -> None:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "operation_type.txt").write_text(result.get("operation_type", ""), encoding="utf-8")
+    (out / OUTPUT_OPERATION_TYPE).write_text(result.get("operation_type", ""), encoding="utf-8")
     if result.get("image") is not None:
-        save_image(result["image"], out / "overlayed_all.png")
+        save_image(result["image"], out / DATASET_OVERLAYED_ALL)
     response = {k: v for k, v in result.items() if k != "image"}
-    (out / "response.json").write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")
+    (out / OUTPUT_RESPONSE).write_text(json.dumps(response, indent=2, default=str), encoding="utf-8")

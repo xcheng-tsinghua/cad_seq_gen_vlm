@@ -5,6 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from config import RagConfig
+from filenames import DATASET_OVERLAYED_ALL, DATASET_PREV_DEPTH_MAP
 from rag.prompt_builder import RagPromptBuilder
 
 
@@ -15,8 +16,8 @@ def _image(path: Path, color: tuple[int, int, int]) -> str:
 
 
 def test_prompt_with_retrieved_examples(tmp_path):
-    prev = _image(tmp_path / "e" / "prev_depth_map.png", (20, 20, 20))
-    overlay = _image(tmp_path / "e" / "overlayed_all.png", (255, 0, 0))
+    prev = _image(tmp_path / "e" / DATASET_PREV_DEPTH_MAP, (20, 20, 20))
+    overlay = _image(tmp_path / "e" / DATASET_OVERLAYED_ALL, (255, 0, 0))
     example = {
         "sample_id": "s1",
         "score": 0.873,
@@ -57,4 +58,3 @@ def test_max_reference_images_respected(tmp_path):
     prompt = RagPromptBuilder(cfg).build(Image.new("RGB", (16, 16)), Image.new("RGB", (16, 16)), examples)
     assert len(prompt.images) == 5
     assert len(prompt.image_roles) == 5
-

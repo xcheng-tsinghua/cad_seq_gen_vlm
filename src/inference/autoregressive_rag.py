@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from config import AppConfig
+from filenames import OUTPUT_GENERATED_DEPTH_MAP
 from inference.rag_single_step import run_rag_single_step
 from models.emu35_adapter import Emu35Adapter
 from rag.retriever import RagRetriever
@@ -48,9 +49,8 @@ class AutoregressiveRagPlanner:
             steps.append({k: v for k, v in result.items() if k != "image"})
             if result.get("operation_type") == "<STOP>":
                 break
-            next_depth = step_dir / "generated_depth_map.png"
+            next_depth = step_dir / OUTPUT_GENERATED_DEPTH_MAP
             shutil.copy2(current_depth, next_depth)
             current_depth = next_depth
         (out / "sequence.json").write_text(json.dumps(steps, indent=2, default=str), encoding="utf-8")
         return steps
-

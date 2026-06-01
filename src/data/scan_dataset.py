@@ -7,15 +7,15 @@ import re
 from typing import Any
 
 from data.operation_type import get_exact_operation_type_from_param
-from utils.image_io import validate_image_file
-
-
-REQUIRED_STEP_FILES = (
-    "prev_depth_map.png",
-    "current_depth_map.png",
-    "operation_param.json",
-    "overlayed_all.png",
+from filenames import (
+    DATASET_CURRENT_DEPTH_MAP,
+    DATASET_FINAL_SNAPSHOT,
+    DATASET_OPERATION_PARAM,
+    DATASET_OVERLAYED_ALL,
+    DATASET_PREV_DEPTH_MAP,
+    REQUIRED_STEP_FILES,
 )
+from utils.image_io import validate_image_file
 
 
 @dataclass
@@ -66,7 +66,7 @@ def scan_dataset(
     op_hist: Counter[str] = Counter()
 
     for part_view_dir in sorted(p for p in root.rglob("*") if p.is_dir()):
-        final_snapshot = part_view_dir / "final_snapshot.png"
+        final_snapshot = part_view_dir / DATASET_FINAL_SNAPSHOT
         if not final_snapshot.exists():
             continue
 
@@ -74,7 +74,7 @@ def scan_dataset(
         cad_part_id, view_suffix = parse_part_view_name(part_view_dir.name)
         part_ids.add(cad_part_id)
         if validate_images and not validate_image_file(final_snapshot):
-            issues.append(ScanIssue(str(final_snapshot), "final_snapshot.png is missing or corrupted", "error"))
+            issues.append(ScanIssue(str(final_snapshot), f"{DATASET_FINAL_SNAPSHOT} is missing or corrupted", "error"))
 
         rollback_dirs = []
         for child in part_view_dir.iterdir():
@@ -99,9 +99,9 @@ def scan_dataset(
                 continue
 
             image_paths = [
-                rollback_dir / "prev_depth_map.png",
-                rollback_dir / "current_depth_map.png",
-                rollback_dir / "overlayed_all.png",
+                rollback_dir / DATASET_PREV_DEPTH_MAP,
+                rollback_dir / DATASET_CURRENT_DEPTH_MAP,
+                rollback_dir / DATASET_OVERLAYED_ALL,
             ]
             if validate_images:
                 bad_images = [str(path) for path in image_paths if not validate_image_file(path)]
@@ -111,7 +111,7 @@ def scan_dataset(
                     )
                     continue
 
-            param_path = rollback_dir / "operation_param.json"
+            param_path = rollback_dir / DATASET_OPERATION_PARAM
             try:
                 operation_type = get_exact_operation_type_from_param(param_path)
             except Exception as exc:
@@ -121,9 +121,9 @@ def scan_dataset(
             sample = {
                 "sample_id": f"{part_view_dir.name}__roll_back_index_{rollback_index}",
                 "final_snapshot_path": str(final_snapshot),
-                "prev_depth_map_path": str(rollback_dir / "prev_depth_map.png"),
-                "overlayed_all_path": str(rollback_dir / "overlayed_all.png"),
-                "current_depth_map_path": str(rollback_dir / "current_depth_map.png"),
+                "prev_depth_map_path": str(rollback_dir / DATASET_PREV_DEPTH_MAP),
+                "overlayed_all_path": str(rollback_dir / DATASET_OVERLAYED_ALL),
+                "current_depth_map_path": str(rollback_dir / DATASET_CURRENT_DEPTH_MAP),
                 "operation_param_path": str(param_path),
                 "operation_type": operation_type,
                 "cad_part_id": cad_part_id,
@@ -172,4 +172,3 @@ def scan_dataset(
         "num_error_issues": sum(1 for issue in issues if issue.severity == "error"),
     }
     return DatasetScanResult(samples=samples, issues=issues, stats=stats)
-

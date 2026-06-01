@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from filenames import KB_EMBEDDINGS, KB_VECTOR_STORE_META
 from rag.image_embedding import l2_normalize
 
 
@@ -52,25 +53,25 @@ class NumpyVectorStore:
     def save(self, kb_dir: str | Path) -> None:
         out = Path(kb_dir)
         out.mkdir(parents=True, exist_ok=True)
-        np.save(out / "embeddings.npy", self.embeddings)
+        np.save(out / KB_EMBEDDINGS, self.embeddings)
         meta = {
             "backend": "numpy",
             "embedding_shape": list(self.embeddings.shape),
             **self.metadata,
         }
-        (out / "vector_store_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        (out / KB_VECTOR_STORE_META).write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, kb_dir: str | Path) -> "NumpyVectorStore":
         root = Path(kb_dir)
-        embeddings_path = root / "embeddings.npy"
+        embeddings_path = root / KB_EMBEDDINGS
         if embeddings_path.exists():
             embeddings = np.load(embeddings_path)
             if embeddings.ndim == 1:
                 embeddings = embeddings.reshape(0, int(embeddings.shape[0])) if embeddings.size == 0 else embeddings.reshape(1, -1)
         else:
             embeddings = np.zeros((0, 0), dtype=np.float32)
-        meta_path = root / "vector_store_meta.json"
+        meta_path = root / KB_VECTOR_STORE_META
         metadata = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
         return cls(embeddings=embeddings.astype(np.float32), metadata=metadata)
 

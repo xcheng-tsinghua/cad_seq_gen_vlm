@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from config import load_config
+from filenames import KB_EMBEDDINGS, KB_FAISS_INDEX, KB_ITEMS
 from rag.retriever import RagRetriever
 from utils.jsonl import read_jsonl
 
@@ -22,7 +23,7 @@ def main() -> None:
 
     config = load_config(args.config)
     kb_dir = Path(args.kb_dir or config.rag.kb_dir)
-    items_path = kb_dir / "kb_items.jsonl"
+    items_path = kb_dir / KB_ITEMS
     items = list(read_jsonl(items_path)) if items_path.exists() else []
     retriever = RagRetriever(kb_dir)
     hist = Counter(item.get("operation_type", "unknown") for item in items)
@@ -31,7 +32,7 @@ def main() -> None:
         "num_items": len(items),
         "operation_type_histogram": dict(sorted(hist.items())),
         "embedding_shape": list(retriever.store.shape),
-        "vector_index_exists": (kb_dir / "faiss.index").exists() or (kb_dir / "embeddings.npy").exists(),
+        "vector_index_exists": (kb_dir / KB_FAISS_INDEX).exists() or (kb_dir / KB_EMBEDDINGS).exists(),
         "is_empty": retriever.is_empty(),
         "example_items": items[:3],
     }

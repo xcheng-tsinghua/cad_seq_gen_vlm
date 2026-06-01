@@ -6,6 +6,7 @@ from typing import Any
 from PIL import Image
 
 from config import RagConfig
+from filenames import KB_ITEMS
 from rag.image_embedding import create_image_embedder
 from rag.kb_schema import KBItem, item_from_dict
 from rag.vector_store import NumpyVectorStore
@@ -22,7 +23,7 @@ class RagRetriever:
         self.load()
 
     def load(self) -> None:
-        items_path = self.kb_dir / "kb_items.jsonl"
+        items_path = self.kb_dir / KB_ITEMS
         if items_path.exists():
             self.items = [item_from_dict(row) for row in read_jsonl(items_path)]
         else:

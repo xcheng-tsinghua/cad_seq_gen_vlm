@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 
 from data.operation_type import get_exact_operation_type_from_param
+from filenames import DATASET_OPERATION_PARAM
 
 
 def _write_param(tmp_path, payload):
-    path = tmp_path / "operation_param.json"
+    path = tmp_path / DATASET_OPERATION_PARAM
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
@@ -42,4 +43,3 @@ def test_construct_type_anything_else_maps_to_cut(tmp_path):
 def test_draft_angle_prefix(tmp_path):
     path = _write_param(tmp_path, {"modeling_type": "extrude", "construct_type": "REMOVE", "draft_angle": 2.5})
     assert get_exact_operation_type_from_param(path) == "draft_extrude_cut"
-

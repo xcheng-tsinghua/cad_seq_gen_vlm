@@ -10,6 +10,7 @@ import numpy as np
 from config import RagConfig
 from data.manifest import load_manifest
 from data.scan_dataset import scan_dataset
+from filenames import KB_BUILD_REPORT, KB_EMBEDDINGS, KB_FAISS_INDEX, KB_ITEMS
 from rag.image_embedding import create_image_embedder
 from rag.kb_schema import KBItem
 from rag.vector_store import build_vector_store
@@ -57,7 +58,7 @@ def build_kb_from_dataset(
         try:
             embeddings.append(embedder.embed_pair(item.final_snapshot_path, item.prev_depth_map_path))
             item.metadata["image_embedding_index"] = len(embeddings) - 1
-            item.metadata["image_embedding_file"] = "embeddings.npy"
+            item.metadata["image_embedding_file"] = KB_EMBEDDINGS
             kept_items.append(item)
         except Exception as exc:
             failed.append({"sample_id": item.sample_id, "error": str(exc)})
@@ -71,7 +72,7 @@ def build_kb_from_dataset(
     )
     store.save(out)
     faiss_written = maybe_write_faiss_index(out, store.embeddings) if config.vector_backend == "faiss" else False
-    write_jsonl(out / "kb_items.jsonl", [item.to_dict() for item in kept_items])
+    write_jsonl(out / KB_ITEMS, [item.to_dict() for item in kept_items])
 
     hist = Counter(item.operation_type for item in kept_items)
     report = {
@@ -86,7 +87,7 @@ def build_kb_from_dataset(
         "failed_items": failed,
         "empty": len(kept_items) == 0,
     }
-    (out / "build_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out / KB_BUILD_REPORT).write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
 
 
@@ -94,7 +95,7 @@ def create_empty_kb(kb_dir: str | Path, config: RagConfig | None = None) -> dict
     cfg = config or RagConfig()
     out = Path(kb_dir)
     out.mkdir(parents=True, exist_ok=True)
-    write_jsonl(out / "kb_items.jsonl", [])
+    write_jsonl(out / KB_ITEMS, [])
     build_vector_store([], metadata={"embedding_backend": cfg.embedding_backend, "vector_backend": cfg.vector_backend}).save(out)
     report = {
         "kb_dir": str(out),
@@ -106,7 +107,7 @@ def create_empty_kb(kb_dir: str | Path, config: RagConfig | None = None) -> dict
         "failed_items": [],
         "empty": True,
     }
-    (out / "build_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out / KB_BUILD_REPORT).write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
 
 
@@ -119,5 +120,5 @@ def maybe_write_faiss_index(kb_dir: Path, embeddings: np.ndarray) -> bool:
         return False
     index = faiss.IndexFlatIP(embeddings.shape[1])
     index.add(embeddings.astype(np.float32))
-    faiss.write_index(index, str(kb_dir / "faiss.index"))
+    faiss.write_index(index, str(kb_dir / KB_FAISS_INDEX))
     return True

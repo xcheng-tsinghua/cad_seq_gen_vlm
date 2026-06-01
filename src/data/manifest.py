@@ -8,6 +8,19 @@ from pathlib import Path
 from typing import Iterable
 
 from data.scan_dataset import DatasetScanResult
+from filenames import (
+    DATASET_CURRENT_DEPTH_MAP,
+    DATASET_FINAL_SNAPSHOT,
+    DATASET_OPERATION_PARAM,
+    DATASET_OVERLAYED_ALL,
+    DATASET_PREV_DEPTH_MAP,
+    MANIFEST_ALL,
+    MANIFEST_ISSUES,
+    MANIFEST_STATS,
+    MANIFEST_TEST,
+    MANIFEST_TRAIN,
+    MANIFEST_VAL,
+)
 from utils.image_io import load_and_resize, save_image
 from utils.jsonl import write_jsonl
 
@@ -77,12 +90,12 @@ def write_manifest_bundle(
     )
 
     paths = {
-        "all": output_dir / "manifest_all.jsonl",
-        "train": output_dir / "train.jsonl",
-        "val": output_dir / "val.jsonl",
-        "test": output_dir / "test.jsonl",
-        "stats": output_dir / "stats.json",
-        "issues": output_dir / "issues.jsonl",
+        "all": output_dir / MANIFEST_ALL,
+        "train": output_dir / MANIFEST_TRAIN,
+        "val": output_dir / MANIFEST_VAL,
+        "test": output_dir / MANIFEST_TEST,
+        "stats": output_dir / MANIFEST_STATS,
+        "issues": output_dir / MANIFEST_ISSUES,
     }
     write_jsonl(paths["all"], result.samples)
     for split_name, rows in splits.items():
@@ -101,26 +114,26 @@ def materialize_preprocessed_cache(
     cache_root = Path(cache_dir)
     cache_root.mkdir(parents=True, exist_ok=True)
     cached_samples: list[dict] = []
-    image_keys = [
-        "final_snapshot_path",
-        "prev_depth_map_path",
-        "overlayed_all_path",
-        "current_depth_map_path",
-    ]
+    image_outputs = {
+        "final_snapshot_path": DATASET_FINAL_SNAPSHOT,
+        "prev_depth_map_path": DATASET_PREV_DEPTH_MAP,
+        "overlayed_all_path": DATASET_OVERLAYED_ALL,
+        "current_depth_map_path": DATASET_CURRENT_DEPTH_MAP,
+    }
     for sample in samples:
         row = dict(sample)
         sample_dir = cache_root / str(row.get("sample_id", "sample")).replace("/", "_")
         sample_dir.mkdir(parents=True, exist_ok=True)
-        for key in image_keys:
+        for key, filename in image_outputs.items():
             source = row.get(key)
             if not source:
                 continue
-            target = sample_dir / f"{key.replace('_path', '')}.png"
+            target = sample_dir / filename
             save_image(load_and_resize(source, image_size), target)
             row[key] = str(target)
         param_path = row.get("operation_param_path")
         if param_path:
-            target_param = sample_dir / "operation_param.json"
+            target_param = sample_dir / DATASET_OPERATION_PARAM
             shutil.copy2(param_path, target_param)
             row["operation_param_path"] = str(target_param)
         cached_samples.append(row)

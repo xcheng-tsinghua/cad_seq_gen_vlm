@@ -7,6 +7,13 @@ from PIL import Image
 
 from data.manifest import deterministic_split
 from data.scan_dataset import scan_dataset
+from filenames import (
+    DATASET_CURRENT_DEPTH_MAP,
+    DATASET_FINAL_SNAPSHOT,
+    DATASET_OPERATION_PARAM,
+    DATASET_OVERLAYED_ALL,
+    DATASET_PREV_DEPTH_MAP,
+)
 
 
 def _png(path: Path, color=(0, 0, 0)):
@@ -16,14 +23,14 @@ def _png(path: Path, color=(0, 0, 0)):
 
 def _step(root: Path, part_view: str, index: int, op: dict, missing: str | None = None):
     part_dir = root / part_view
-    _png(part_dir / "final_snapshot.png", (10, 10, 10))
+    _png(part_dir / DATASET_FINAL_SNAPSHOT, (10, 10, 10))
     step_dir = part_dir / f"roll_back_index_{index}"
     step_dir.mkdir(parents=True, exist_ok=True)
     files = {
-        "prev_depth_map.png": lambda: _png(step_dir / "prev_depth_map.png", (20, 20, 20)),
-        "current_depth_map.png": lambda: _png(step_dir / "current_depth_map.png", (30, 30, 30)),
-        "overlayed_all.png": lambda: _png(step_dir / "overlayed_all.png", (255, 0, 0)),
-        "operation_param.json": lambda: (step_dir / "operation_param.json").write_text(json.dumps(op), encoding="utf-8"),
+        DATASET_PREV_DEPTH_MAP: lambda: _png(step_dir / DATASET_PREV_DEPTH_MAP, (20, 20, 20)),
+        DATASET_CURRENT_DEPTH_MAP: lambda: _png(step_dir / DATASET_CURRENT_DEPTH_MAP, (30, 30, 30)),
+        DATASET_OVERLAYED_ALL: lambda: _png(step_dir / DATASET_OVERLAYED_ALL, (255, 0, 0)),
+        DATASET_OPERATION_PARAM: lambda: (step_dir / DATASET_OPERATION_PARAM).write_text(json.dumps(op), encoding="utf-8"),
     }
     for name, writer in files.items():
         if name != missing:
@@ -38,13 +45,13 @@ def test_scan_non_continuous_indices_and_final_snapshot_pairing(tmp_path):
     result = scan_dataset(root, add_stop_samples=False)
 
     assert [sample["rollback_index"] for sample in result.samples] == [1, 3]
-    assert all(Path(sample["final_snapshot_path"]).as_posix().endswith("partA_front/final_snapshot.png") for sample in result.samples)
+    assert all(Path(sample["final_snapshot_path"]).as_posix().endswith(f"partA_front/{DATASET_FINAL_SNAPSHOT}") for sample in result.samples)
     assert [sample["operation_type"] for sample in result.samples] == ["extrude_add", "revolve_add"]
 
 
 def test_missing_files_are_reported(tmp_path):
     root = tmp_path / "raw"
-    _step(root, "partB_top", 1, {"modeling_type": "extrude"}, missing="overlayed_all.png")
+    _step(root, "partB_top", 1, {"modeling_type": "extrude"}, missing=DATASET_OVERLAYED_ALL)
 
     result = scan_dataset(root, add_stop_samples=False)
 
@@ -77,4 +84,3 @@ def test_split_by_part_id_has_no_leakage():
     assert split_parts["train"].isdisjoint(split_parts["val"])
     assert split_parts["train"].isdisjoint(split_parts["test"])
     assert split_parts["val"].isdisjoint(split_parts["test"])
-
