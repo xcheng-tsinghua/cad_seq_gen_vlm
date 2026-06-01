@@ -18,7 +18,7 @@ SYSTEM_PROMPT = (
 
 
 DRAWING_RULES = """Preview drawing rules:
-- Keep the previous state depth map unchanged as the background.
+- Keep the previous state depth map with edge frame unchanged as the background.
 - Apply a semi-transparent yellow mask on the sketch reference plane.
 - Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
 - Draw the colored_incremental_wireframe showing the local entity created, modified, or removed in this step.
@@ -93,7 +93,7 @@ class RagPromptBuilder:
 
 User:
 Image 1 is the final CAD part snapshot for the query.
-Image 2 is the previous state depth map for the query.
+Image 2 is the previous state depth map with edge frame for the query.
 
 Your task:
 Predict the current modeling operation type and generate the CAD-style preview image for this step.
