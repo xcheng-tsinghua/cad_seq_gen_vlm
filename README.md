@@ -2,7 +2,7 @@
 
 Frozen Emu3.5 system for vision-based CAD modeling step reverse generation and general multimodal inference.
 
-This project no longer fine-tunes Emu3.5. It keeps Emu3.5 frozen, builds a retrieval knowledge base from historical CAD modeling steps, retrieves similar examples for a query, and asks Emu3.5 to generate:
+This project keeps Emu3.5 frozen, builds a retrieval knowledge base from historical CAD modeling steps, retrieves similar examples for a reference, and asks Emu3.5 to generate:
 
 - `Operation_Type: <operation_type>`
 - one CAD-style preview image, `overlayed_all.png`
@@ -64,6 +64,13 @@ git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
 python -m pip install -r requirements.txt
 ```
 
+Make sure `configs/rag.yaml` contains:
+
+```yaml
+model:
+  emu_repo_path: "third_party/Emu3.5"
+```
+
 Install the download helpers if you need `scripts/download_models.py`:
 
 ```bash
@@ -85,7 +92,7 @@ python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
 python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
 ```
 
-## CUDA 12.8 / Blackwell Notes
+### CUDA 12.8 / Blackwell Notes
 Optional acceleration libraries are not required:
 
 - `flash-attn`
@@ -132,7 +139,7 @@ python scripts/download_models.py \
 
 Runtime loading always uses local paths by default. The adapter does not download anything.
 
-## Dataset Layout
+## Compatible Dataset Layout
 
 ```text
 root/
@@ -149,53 +156,9 @@ root/
 
 Rollback indices may be non-continuous. Operation types are derived exactly from `operation_param.json` by `get_exact_operation_type_from_param`.
 
-## Normal RAG Workflow
+## Build Knowledge Base (KB)
 
-1. Check GPU environment:
-
-```bash
-python scripts/check_gpu_env.py
-```
-
-2. Download model weights:
-
-```bash
-python scripts/download_models.py
-```
-
-3. Install or configure official Emu3.5 runtime source code:
-
-```bash
-mkdir -p third_party
-git clone https://github.com/baaivision/Emu3.5.git third_party/Emu3.5
-```
-
-Make sure `configs/rag.yaml` contains:
-
-```yaml
-model:
-  emu_repo_path: "third_party/Emu3.5"
-```
-
-4. Check official Emu3.5 imports:
-
-```bash
-python scripts/check_emu35_imports.py --config configs/rag.yaml
-```
-
-5. Check Emu3.5 tokenizer compatibility:
-
-```bash
-python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
-```
-
-6. Check Emu3.5 generation config compatibility:
-
-```bash
-python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
-```
-
-7. Edit dataset path in `configs/rag.yaml`:
+1. Edit dataset path in `configs/rag.yaml`:
 
 ```yaml
 data:
@@ -209,31 +172,57 @@ rag:
   kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
 ```
 
-8. Prepare manifest:
+2. Prepare manifest:
 
 ```bash
 python scripts/prepare_manifest.py --dataset-root /path/to/your/dataset --manifest-dir data/manifests --add-stop-samples
 ```
 
-9. Build RAG knowledge base:
+3. Build RAG knowledge base:
 
 ```bash
 python scripts/build_kb.py --config configs/rag.yaml --dataset-root /path/to/your/dataset
 ```
 
-10. Inspect KB:
+4. Inspect KB:
 
 ```bash
 python scripts/inspect_kb.py --config configs/rag.yaml
 ```
 
-11. Run single inference:
+## Normal RAG Workflow
+
+1. Check GPU environment:
+
+```bash
+python scripts/check_gpu_env.py
+```
+
+2. Check official Emu3.5 imports:
+
+```bash
+python scripts/check_emu35_imports.py --config configs/rag.yaml
+```
+
+3. Check Emu3.5 tokenizer compatibility:
+
+```bash
+python scripts/check_emu35_tokenizer.py --config configs/rag.yaml
+```
+
+4. Check Emu3.5 generation config compatibility:
+
+```bash
+python scripts/check_emu35_generation_cfg.py --config configs/rag.yaml
+```
+
+5. Run single inference:
 
 ```bash
 python scripts/infer_rag_single.py --config configs/rag.yaml --final-snapshot examples/final_snapshot.png --prev-depth-map examples/prev_depth_map.png --output-dir /root/autodl-tmp/data/outputs/rag_single
 ```
 
-12. Launch web demo:
+6. Launch web demo:
 
 ```bash
 python scripts/launch_web_demo.py --config configs/rag.yaml
