@@ -1,4 +1,4 @@
-# Vision2CAD
+# Vision2CAD: Approaching human CAD modeling by command vision preview
 
 Frozen Emu3.5 system for vision-based CAD modeling step reverse generation and general multimodal inference.
 
