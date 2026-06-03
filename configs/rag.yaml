@@ -25,7 +25,7 @@ rag:
   max_reference_images: 3
   include_example_outputs: true
   include_example_final_snapshot: false
-  include_example_prev_depth_map: true
+  include_example_prev_depth_map: false
   include_example_overlayed_all: true
   allow_empty_kb: true
 
