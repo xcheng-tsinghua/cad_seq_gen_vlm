@@ -1,0 +1,224 @@
+
+输入数据：
+建模类型（建议值）：例如 extrude_add
+伪预览图:
+ - 伪预览图Part1：现有模型：灰色(r=g=b)深度图 + Magenta (255,0,255) 线框
+ - 伪预览图Part2：半透明mask：黄色(255,255,0)为草图参考面，青色cyan(0,255,255)为参考几何体
+ - 伪预览图Part3：colored_incremental_wireframe：表达当前建模操作的预览：红色线框(255,0,0)为草图，蓝色(0,0,255)为终止面线框，绿色(0,255,0)为其它成型线
+
+解析方式：
+1. 先从预览图中分离 colored_incremental_wireframe，三个通道有两个接近零，另一个接近255的是 colored_incremental_wireframe。
+2. 视角配准（可直接用深度图bbox）调整相机平移缩放，使现有模型对齐预览图中的背景（目前不考虑旋转视角，Magenta (255,0,255) 线框中被遮挡部分线框用虚线表示，可表达一部分背后的信息）。
+3. 遍历全部面，与半透明黄色mask符合最好的是草图基准面
+4. 遍历全部面和边，与半透明青色符合最好的是参考几何体
+5. 提取红色线框的骨架，并获取骨架上的一些点，将其投影到草图基准面，并通过基元拟合，校正对齐的方式构建可用于拉伸等命令的标准草图
+6. 基于草图和参考几何体，执行建模命令，尝试多组参数（例如拉伸长度，旋转角度），将蓝色和绿色线框符合程度最好的数值作为建模参数
+7. 执行建模命令，完成当前步实体的构建
+
+
+I am developing a Qt6 + OpenCascade 7.9.3 + C++23 CAD modeling application.
+
+The project already has basic functionality for parsing Onshape parts and generating step-by-step pseudo preview images. I want to add a new function that parses these pseudo preview images back into modeling operation.
+
+Please inspect the current project structure first and integrate the new code with the existing style. Do not rewrite the whole project.
+
+Goal:
+Add a first MVP module named PreviewParser. The MVP should not execute CAD modeling yet. It should only:
+1. Load a pseudo preview image.
+2. Segment semantic color layers.
+3. Estimate screen-space registration between the current model projection and the preview image.
+4. Identify candidate sketch plane face by matching the yellow mask.
+5. Export debug images.
+
+Pseudo preview image semantics:
+- Existing model depth/background: grayscale, r = g = b.
+- Existing model wireframe: magenta, RGB = (255, 0, 255).
+- Sketch reference plane mask: semi-transparent yellow, RGB = (255, 255, 0).
+- Reference geometry mask: semi-transparent cyan, RGB = (0, 255, 255).
+- Current operation sketch wireframe: red, RGB = (255, 0, 0).
+- Termination face wireframe: blue, RGB = (0, 0, 255).
+- Other forming/incremental wireframe: green, RGB = (0, 255, 0).
+
+Important design requirements:
+1. The parser should be implemented as a core C++ module using OCCT geometry/topology APIs and OpenCV image processing.
+2. Camera rotation/view direction is fixed. Only estimate 2D screen-space uniform scale and translation:
+   p_preview = s * p_camera + [tx, ty]
+
+Input files for MVP:
+- preview.png
+- operation_type string
+
+Implementation details:
+
+A. Add data structures:
+- CameraParameters
+- ScreenRegistration
+- PreviewMasks
+- FaceMatchResult
+- PreviewParseResult
+
+B. Add image segmentation:
+Create a PreviewColorSegmenter that reads preview.png and extracts masks:
+- magentaMask
+- yellowMask
+- cyanMask
+- redMask
+- blueMask
+- greenMask
+Use tolerant RGB thresholding, because preview images may contain antialiasing or semi-transparent color blending.
+For pure line colors, use thresholds like:
+  red: R > 180 && G < 100 && B < 100
+  green: G > 180 && R < 100 && B < 100
+  blue: B > 180 && R < 100 && G < 100
+  magenta: R > 150 && B > 150 && G < 120
+  yellow: R > 150 && G > 150 && B < 140
+  cyan: G > 150 && B > 150 && R < 140
+Make thresholds configurable.
+
+D. Add topology traversal:
+Traverse all TopoDS_Face and TopoDS_Edge from the current shape.
+Use stable traversal index for MVP:
+- face_index starts from 0
+- edge_index starts from 0
+Do not try to solve persistent topology naming yet.
+
+E. Add projection:
+Implement orthographic projection using CameraParameters.
+Construct camera basis:
+- forward = normalize(center - eye)
+- right = normalize(cross(forward, up))
+- trueUp = cross(right, forward)
+Project a 3D point P:
+- v = P - center
+- x_view = dot(v, right)
+- y_view = dot(v, trueUp)
+- x_ndc = x_view / (scale * aspect)
+- y_ndc = y_view / scale
+- pixel_x = (x_ndc + 1) * 0.5 * image_width
+- pixel_y = (1 - (y_ndc + 1) * 0.5) * image_height
+Then apply screen registration:
+- x_preview = s * pixel_x + tx
+- y_preview = s * pixel_y + ty
+
+H. Add sketch plane candidate matching:
+For each TopoDS_Face:
+1. Triangulate shape if needed using BRepMesh_IncrementalMesh.
+2. Get Poly_Triangulation for the face.
+3. Project triangle vertices using camera projection and screen registration.
+4. Rasterize projected triangles into a binary face mask using OpenCV fillConvexPoly or fillPoly.
+5. Compute IoU or coverage score with yellowMask.
+Use score:
+   intersection = area(faceMask & yellowMask)
+   union = area(faceMask | yellowMask)
+   iou = intersection / max(union, 1)
+Also compute yellow coverage:
+   coverage = intersection / max(area(yellowMask), 1)
+Sort candidates by score and select the best candidate.
+
+I. Add debug outputs:
+- debug_masks.png: visualize extracted masks in their semantic colors.
+- debug_registration.png: overlay registered projected current model edges on top of magenta mask.
+- debug_sketch_plane_match.png: overlay the best projected face mask on top of yellow mask.
+
+J. Add a CLI entry point or developer menu action:
+Preferred CLI:
+preview_parser_cli --step current.step --preview preview.png --camera camera.json --operation extrude_add --out output_dir
+
+If the project does not currently have a CLI structure, add the parser as a reusable library class and add a minimal test/demo function instead.
+
+K. Do not implement these yet:
+- Red sketch skeletonization
+- Sketch primitive fitting
+- Back projection to sketch plane
+- Extrude distance search
+- Actual OCCT modeling command execution
+These will be added in the next stage after the MVP debug outputs are verified.
+
+Please produce clean, modular C++23 code. Use OpenCV for image processing and nlohmann/json or the project's existing JSON library for JSON IO. Avoid global state. Add CMake changes if needed. Ensure the project still builds after the changes.
+
+
+
+-----------------------补充主动建模功能
+I am developing a Qt6 + OpenCascade 7.9.3 + C++23 CAD modeling application.
+
+The current project can only parse Onshape parts and perform some modeling operations based on already constructed Solid, Face, and Edge objects from Onshape. However, it cannot yet actively create sketches and execute modeling operations from scratch.
+
+I want to add a minimal active modeling core.
+
+Please inspect the current project structure first and integrate the new code without rewriting the whole project.
+
+Goal:
+Add a minimal active modeling system that can create simple sketches on principal planes or planar faces and execute extrude_add / extrude_cut in my own software.
+
+Requirements:
+
+1. Principal planes
+- When there is no modeling step or no current solid, show three principal reference planes:
+  - XY plane
+  - YZ plane
+  - ZX plane
+- These planes should be selectable as sketch planes.
+- Add a small visual representation for the three planes in the existing OCCT viewer.
+- Do not require Onshape data to create these planes.
+
+2. Sketch plane abstraction
+Create a SketchPlane representation that can refer to:
+- a principal plane: XY / YZ / ZX
+- an existing planar TopoDS_Face
+
+Each SketchPlane should provide:
+- gp_Pln plane
+- origin
+- u direction
+- v direction
+- normal direction
+- conversion from local 2D sketch coordinates (u, v) to 3D gp_Pnt
+- conversion from 3D gp_Pnt to local 2D coordinates
+
+3. Sketch entities
+Add basic 2D sketch entities:
+- line segment
+- circle / arc
+- bspline curve
+
+Use local 2D coordinates on the sketch plane.
+
+Example:
+Circle:
+{
+  center_u,
+  center_v,
+  radius
+}
+
+Line:
+{
+  start_u,
+  start_v,
+  end_u,
+  end_v
+}
+
+4. SketchBuilder
+Add a SketchBuilder that converts sketch entities on a SketchPlane into OCCT topology:
+- line -> TopoDS_Edge
+- circle -> TopoDS_Edge
+- rectangle -> four TopoDS_Edge objects and one closed TopoDS_Wire
+- closed wire -> TopoDS_Face using BRepBuilderAPI_MakeFace
+
+For the MVP, support:
+- one circle profile
+- one rectangle profile
+- one closed profile contains arc, line, and bspline curve
+Do not implement complex constraint solving yet.
+
+5. ModelingOperation
+Improve the existing ModelingOperation to support active modeling:
+OperationType:
+- extrude
+- extrude_cut
+
+6. Keep the implementation modular so that later a PreviewParser can output ModelingCommand JSON and reuse the same ModelingExecutor.
+
+Expected result:
+After this change, the application should be able to create a simple cylinder or box from scratch without loading an Onshape model.
