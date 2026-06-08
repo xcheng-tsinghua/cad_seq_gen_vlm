@@ -15,6 +15,9 @@ git push origin main
 
 git pull && git status && git add . && git commit -m "change" && git push
 
+# autodl 学术资源加速
+source /etc/network_turbo
+
 
 # 对于目录
 # 需要将 ${directory} 更换为已被Git同步但是需要解除同步的文件夹

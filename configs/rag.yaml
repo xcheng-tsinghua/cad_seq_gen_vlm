@@ -14,11 +14,11 @@ model:
   patch_tokenizer_source: true
 
 data:
-  dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img2"
+  dataset_root: "/opt/data/private/data_set/onshape/cad_seq_img3"
   manifest_dir: "data/manifests"
 
 rag:
-  kb_dir: "/root/autodl-tmp/data/outputs/rag_kb2"
+  kb_dir: "/root/autodl-tmp/data/outputs/rag_kb3"
   embedding_backend: "simple"
   vector_backend: "numpy"
   top_k: 6

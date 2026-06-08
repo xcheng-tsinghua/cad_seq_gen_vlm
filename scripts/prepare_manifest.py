@@ -8,15 +8,16 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from config import load_config
 from data.manifest import materialize_preprocessed_cache, write_manifest_bundle
 from data.scan_dataset import scan_dataset
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare CAD sequence RAG manifests.")
-    parser.add_argument("--dataset-root", required=True)
-    parser.add_argument("--manifest-dir", required=True)
-    parser.add_argument("--add-stop-samples", action="store_true")
+    parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "rag.yaml"))
+
+    parser.add_argument("--add-stop-samples", action="store_false")
     parser.add_argument("--no-validate-images", action="store_true")
     parser.add_argument("--stop-image-policy", default="copy_last_depth", choices=["copy_last_depth", "blank"])
     parser.add_argument("--train-ratio", type=float, default=0.9)
@@ -27,8 +28,10 @@ def main() -> None:
     parser.add_argument("--image-size", type=int, default=512)
     args = parser.parse_args()
 
+    config = load_config(args.config)
+
     result = scan_dataset(
-        args.dataset_root,
+        config.data.dataset_root,
         add_stop_samples=args.add_stop_samples,
         stop_image_policy=args.stop_image_policy,
         validate_images=not args.no_validate_images,
@@ -37,7 +40,7 @@ def main() -> None:
         result.samples = materialize_preprocessed_cache(result.samples, args.cache_dir, image_size=args.image_size)
     paths = write_manifest_bundle(
         result,
-        args.manifest_dir,
+        config.data.manifest_dir,
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,

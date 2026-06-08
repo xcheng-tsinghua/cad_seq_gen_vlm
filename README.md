@@ -4,12 +4,14 @@ Frozen Emu3.5 system for vision-based CAD modeling step reverse generation and g
 
 This project keeps Emu3.5 frozen, builds a retrieval knowledge base from historical CAD modeling steps, retrieves similar examples for a reference, and asks Emu3.5 to generate:
 
+The current project is RAG-first and uses frozen Emu3.5 for inference only. Fine-tuning scripts, LoRA/QLoRA training, optimizer loops, validation loss, and checkpoint training workflows is not implemented. 
+
 - `Operation_Type: <operation_type>`
 - one CAD-style preview image, `overlayed_all.png`
 
 The system supports an empty knowledge base. If no KB exists, the API and web demo still launch and CAD-RAG runs zero-shot using only the query images and drawing rules. General Emu3.5 mode does not use the knowledge base at all.
 
-## Modes
+## 1. Modes
 
 1. CAD-RAG Mode
 
@@ -19,7 +21,7 @@ Uses the CAD knowledge base and CAD-specific prompt to predict CAD modeling step
 
 Directly exposes frozen Emu3.5 for normal multimodal tasks. It accepts a user text prompt and zero or more images, skips RAG entirely, and returns raw text, generated image artifacts when present, and debug metadata.
 
-## Project Layout
+## 2. Project Layout
 
 The repository now runs directly from the `cad_seq_gen_vlm` root, and the Python modules are flattened directly under `src/`:
 
@@ -35,7 +37,7 @@ cad_seq_gen_vlm/
 
 Large local folders such as `data/`, `outputs/`, `checkpoints/`, `pretrained_lm/`, and `third_party/` are intentionally ignored. Keep model weights and generated artifacts outside Git.
 
-## Filename Configuration
+## 3. Filename Configuration
 
 Project dataset, output artifact, manifest, and KB filenames are centralized in:
 
@@ -45,7 +47,7 @@ src/filenames.py
 
 Change names such as `final_snapshot.png`, `prev_depth_map.png`, `overlayed_all.png`, `operation_param.json`, `response.json`, or `kb_items.jsonl` there instead of editing scattered call sites.
 
-## Environment Setup
+## 4. Environment Setup
 
 The validated runtime uses conda, Python `3.12.13`, PyTorch `2.11.0+cu128`, and Transformers `4.48.2`.
 
@@ -104,7 +106,7 @@ If they are absent, the project falls back to standard PyTorch inference with a 
 
 For CPU-only model downloading or RAG KB building:
 
-## Download weights from ModelScope Without GPU
+## 5. Download weights from ModelScope Without GPU
 
 Recommended for mainland China:
 
@@ -139,35 +141,33 @@ python scripts/download_models.py \
 
 Runtime loading always uses local paths by default. The adapter does not download anything.
 
-## Compatible Dataset Layout
+## 6. Check Dataset Layout is Compatible
 
 ```text
 root/
   CAD_PART_ID_VIEW_SUFFIX/
-    final_snapshot.png
+    final_snapshot.png  (should same as src.filenames.DATASET_FINAL_SNAPSHOT)
     roll_back_index_1/
-      prev_depth_map.png
-      current_depth_map.png
-      operation_param.json
-      overlayed_all.png
+      prev_depth_map.png  (should same as src.filenames.DATASET_PREV_DEPTH_MAP)
+      current_depth_map.png  (should same as src.filenames.DATASET_CURRENT_DEPTH_MAP)
+      operation_param.json  (should same as src.filenames.DATASET_OPERATION_PARAM)
+      overlayed_all.png  (should same as src.filenames.DATASET_OVERLAYED_ALL)
     roll_back_index_3/
       ...
 ```
 
 Rollback indices may be non-continuous. Operation types are derived exactly from `operation_param.json` by `get_exact_operation_type_from_param`.
 
-## Build Knowledge Base (KB)
+## 7. Knowledge Base (KB)
+### 7.1. Procedure to build KB
 
 1. Edit dataset path in `configs/rag.yaml`:
 
 ```yaml
 data:
   dataset_root: "/path/to/your/dataset"
-```
+  manifest_dir: "data/manifests"
 
-The default knowledge base path is also defined in `configs/rag.yaml`:
-
-```yaml
 rag:
   kb_dir: "/root/autodl-tmp/data/outputs/rag_kb"
 ```
@@ -175,13 +175,13 @@ rag:
 2. Prepare manifest:
 
 ```bash
-python scripts/prepare_manifest.py --dataset-root /path/to/your/dataset --manifest-dir data/manifests --add-stop-samples
+python scripts/prepare_manifest.py  --config configs/rag.yaml
 ```
 
 3. Build RAG knowledge base:
 
 ```bash
-python scripts/build_kb.py --config configs/rag.yaml --dataset-root /path/to/your/dataset
+python scripts/build_kb.py  --config configs/rag.yaml
 ```
 
 4. Inspect KB:
@@ -190,7 +190,32 @@ python scripts/build_kb.py --config configs/rag.yaml --dataset-root /path/to/you
 python scripts/inspect_kb.py --config configs/rag.yaml
 ```
 
-## Normal RAG Workflow
+### 7.2. Empty KB Mode
+
+These cases are supported:
+
+- `configs/rag.yaml.rag.rag_kb` does not exist.
+- `kb_items.jsonl` is empty.
+- `embeddings.npy` is missing.
+- `embeddings.npy` has shape `(0, dim)`.
+
+In all cases retrieval returns `[]`, the prompt builder creates a zero-shot prompt, and the web UI shows:
+
+```text
+Knowledge base is empty. The system is running in zero-shot mode.
+```
+
+Generation still requires a locally installed/loadable Emu3.5 model.
+
+### 7.3. RAG Components
+
+- `src/rag/image_embedding.py`: CLIP if available, simple CPU embedding by default.
+- `src/rag/vector_store.py`: pure NumPy cosine-similarity vector store.
+- `src/rag/retriever.py`: empty-KB-safe retrieval with optional operation type filtering.
+- `src/rag/prompt_builder.py`: multimodal prompt packing with configurable retrieved example images.
+- `src/models/emu35_adapter.py`: frozen Emu3.5 inference-only adapter.
+
+## 8. Normal RAG Workflow
 
 1. Check GPU environment:
 
@@ -236,92 +261,32 @@ http://SERVER_IP:8000
 
 The server binds to `0.0.0.0` by default so other computers on the network can access it.
 
-## General Emu3.5 Mode
+## 9. General Emu3.5 Mode
 
 Text-only:
 
 ```bash
-python scripts/infer_general.py \
-  --config configs/general.yaml \
-  --prompt "Explain what Emu3.5 can do." \
-  --output-dir outputs/general_text
+python scripts/infer_general.py --config configs/general.yaml --prompt "Explain what Emu3.5 can do." --output-dir outputs/general_text
 ```
 
 Image + text:
 
 ```bash
-python scripts/infer_general.py \
-  --config configs/general.yaml \
-  --prompt "Describe this image." \
-  --image examples/final_snapshot.png \
-  --output-dir outputs/general_image
+python scripts/infer_general.py --config configs/general.yaml --prompt "Describe this image." --image examples/final_snapshot.png --output-dir outputs/general_image
 ```
 
 Multiple images:
 
 ```bash
-python scripts/infer_general.py \
-  --config configs/general.yaml \
-  --prompt "Compare these two images." \
-  --image examples/final_snapshot.png \
-  --image examples/prev_depth_map.png \
-  --output-dir outputs/general_multi_image
+python scripts/infer_general.py --config configs/general.yaml --prompt "Compare these two images." --image examples/final_snapshot.png --image examples/prev_depth_map.png --output-dir outputs/general_multi_image
 ```
 
 The script writes `response.json`, `raw_text.txt`, generated image files when present, and Emu3.5 debug events when enabled. Text-only responses are valid; no generated image is not treated as a failure.
 
-## Changing the KB Path
-
-Default KB path:
-
-```text
-/root/autodl-tmp/data/outputs/rag_kb
-```
-
-Option A: edit `configs/rag.yaml`:
-
-```yaml
-rag:
-  kb_dir: "/new/kb/path"
-```
-
-Option B: override from CLI:
+## 10. API
 
 ```bash
-python scripts/build_kb.py \
-  --config configs/rag.yaml \
-  --dataset-root /path/to/dataset \
-  --kb-dir /new/kb/path
-
-python scripts/launch_web_demo.py \
-  --config configs/rag.yaml \
-  --kb-dir /new/kb/path
-```
-
-The same `--kb-dir` override is supported by `inspect_kb.py`, `infer_rag_single.py`, `infer_rag_batch.py`, `launch_api.py`, and `launch_web_demo.py`.
-
-## Empty KB Mode
-
-These cases are supported:
-
-- `/root/autodl-tmp/data/outputs/rag_kb` does not exist.
-- `kb_items.jsonl` is empty.
-- `embeddings.npy` is missing.
-- `embeddings.npy` has shape `(0, dim)`.
-
-In all cases retrieval returns `[]`, the prompt builder creates a zero-shot prompt, and the web UI shows:
-
-```text
-Knowledge base is empty. The system is running in zero-shot mode.
-```
-
-Generation still requires a locally installed/loadable Emu3.5 model.
-
-## API
-
-```bash
-python scripts/launch_api.py \
-  --config configs/rag.yaml
+python scripts/launch_api.py --config configs/rag.yaml
 ```
 
 Endpoints:
@@ -350,8 +315,7 @@ Endpoints:
 The web demo is launched the same way:
 
 ```bash
-python scripts/launch_web_demo.py \
-  --config configs/rag.yaml
+python scripts/launch_web_demo.py --config configs/rag.yaml
 ```
 
 Open:
@@ -362,7 +326,7 @@ http://SERVER_IP:8000
 
 The page includes both CAD-RAG and General Emu3.5 tabs.
 
-## Troubleshooting
+## 11. Troubleshooting
 
 ### Emu3ForCausalLM Does Not Support Flash Attention 2 Yet
 
@@ -478,19 +442,7 @@ Warnings that are currently non-fatal compatibility noise:
 
 Those cache warnings are from upstream API drift and should not block a working MVP unless they become errors in a later Transformers release.
 
-## RAG Components
-
-- `src/rag/image_embedding.py`: CLIP if available, simple CPU embedding by default.
-- `src/rag/vector_store.py`: pure NumPy cosine-similarity vector store.
-- `src/rag/retriever.py`: empty-KB-safe retrieval with optional operation type filtering.
-- `src/rag/prompt_builder.py`: multimodal prompt packing with configurable retrieved example images.
-- `src/models/emu35_adapter.py`: frozen Emu3.5 inference-only adapter.
-
-## Not a Fine-Tuning Project
-
-Fine-tuning scripts, LoRA/QLoRA training, optimizer loops, validation loss, and checkpoint training workflows have been removed. The current project is RAG-first and uses frozen Emu3.5 for inference only.
-
-## Tests
+## 12. Tests
 
 ```bash
 pytest
@@ -498,9 +450,23 @@ pytest
 
 Tests cover operation type extraction, dataset scanning, empty-KB behavior, prompt building, and vector retrieval.
 
-## An environment successfully running this project
+## 13. An environment successfully running this project
 ```
 GPU: RTX PRO 6000
+
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04.5 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=jammy
+
 (cad_vlm) root@autodl-container-eesuqcek0l-c2d01990:/opt/data/private/networks/cad_seq_gen_vlm# pip list
 Package                  Version
 ------------------------ ------------
@@ -600,6 +566,7 @@ urllib3                  2.7.0
 uvicorn                  0.48.0
 websockets               15.0.1
 wheel                    0.46.3
+
 (cad_vlm) root@autodl-container-eesuqcek0l-c2d01990:/opt/data/private/networks/cad_seq_gen_vlm# conda list
 # packages in environment at /root/miniconda3/envs/cad_vlm:
 #
