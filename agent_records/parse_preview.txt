@@ -1,3 +1,4 @@
+利用FreeCAD二次开发的形式实现
 
 输入数据：
 建模类型（建议值）：例如 extrude_add
@@ -145,7 +146,7 @@ The current project can only parse Onshape parts and perform some modeling opera
 
 I want to add a minimal active modeling core.
 
-Please inspect the current project structure first and integrate the new code without rewriting the whole project.
+Please inspect the current project structure first and add active modeling codes without rewriting the whole project.
 
 Goal:
 Add a minimal active modeling system that can create simple sketches on principal planes or planar faces and execute extrude_add / extrude_cut in my own software.
@@ -168,12 +169,10 @@ Create a SketchPlane representation that can refer to:
 
 Each SketchPlane should provide:
 - gp_Pln plane
-- origin
-- u direction
-- v direction
 - normal direction
 - conversion from local 2D sketch coordinates (u, v) to 3D gp_Pnt
 - conversion from 3D gp_Pnt to local 2D coordinates
+- conversion from 2D screen pixel coordinates (pix_x, pix_y) to local 2D coordinates
 
 3. Sketch entities
 Add basic 2D sketch entities:
@@ -203,7 +202,6 @@ Line:
 Add a SketchBuilder that converts sketch entities on a SketchPlane into OCCT topology:
 - line -> TopoDS_Edge
 - circle -> TopoDS_Edge
-- rectangle -> four TopoDS_Edge objects and one closed TopoDS_Wire
 - closed wire -> TopoDS_Face using BRepBuilderAPI_MakeFace
 
 For the MVP, support:
@@ -215,10 +213,42 @@ Do not implement complex constraint solving yet.
 5. ModelingOperation
 Improve the existing ModelingOperation to support active modeling:
 OperationType:
-- extrude
-- extrude_cut
+- extrude (extrude_add, extrude_cut, symmetric_extrude_add, symmetric_extrude_cut)
+- revolve (revolve_add, revolve_cut, symmetric_revolve_add, symmetric_revolve_cut)
+- sweep (sweep_add, sweep_cut)
+- loft (loft_add, loft_cut)
+- fillet (select edges, and fillet on these edges. select faces, and fillet on these face edges)
+- chamfer (select edges, and chamfer on these edges. select faces, and chamfer on these face edges)
+- cplane (make new reference plane from existing geometry, such offset from existing plane, define new plane by three points)
 
-6. Keep the implementation modular so that later a PreviewParser can output ModelingCommand JSON and reuse the same ModelingExecutor.
+6. Keep the implementation modular.
 
 Expected result:
 After this change, the application should be able to create a simple cylinder or box from scratch without loading an Onshape model.
+
+
+--------------------
+模仿现有的建模软件，比如solidworks，继续添加以下功能，并将这些功能添加到快捷工具栏，
+1. 草图绘制：激活后，选择一个草图基准面（必须是平面），可以在上面绘制圆、圆弧、直线段、BSpline curve
+2. 拉伸、旋转、扫描、放样、倒角、圆角、创建基准面
+
+--------------------
+This project no longer performs onshape parsing; it now focuses entirely on active modeling. You can modify all the code to obtain a simple Solidworks-like modeling software. When modifying the code, it's best to utilize any existing code structure that can be used.
+我希望建模命令能用到我已有的类，例如src/modeling_operations/ExtrudeOperation.cpp等
+
+
+--------------------
+我修改了目录结构，重命名了一些文件，以及删除了很多之前解析onshape的函数，你修改代码把功能跑通，此外对于修改了文件名的文件，其中的类名也要根据文件名改变
+
+
+
+-----------
+我想把绘制草图命令当成建模命令的一种，因此我调整了代码结构，并且增加了两个文件，skethcmd.h和sketchcmd.cpp，修改代码以适应我的调整，同时左侧特征树不用把草图和建模命令分开，因为草图也是建模命令的一种
+
+------------
+我基于Qt6 + OpenCascade 7.9.3 + C++23 做了一个CAD建模系统，目前已有一些基本的类，但是还不能运行。
+现在需要添加以下功能并使其能够运行
+现在开发草图绘制功能，需要构建一个草图绘制专用的窗口，该窗口里有选择基准面命令，绘制圆、圆弧（点击三个点构造圆弧）、直线段、bspline curve功能，绘制完成后需要在左侧特征树显示构建的命令。
+
+
+

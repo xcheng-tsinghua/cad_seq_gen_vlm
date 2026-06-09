@@ -608,6 +608,9 @@ def get_exact_operation_type_from_param(param_json_path) -> str:
 -------------------------------------------------------- Emu3.5
 # System Architecture & Workflow Handover: Vision-Based CAD Modeling Step Reverse Generation System MVP (Minimum Viable Product)
 
+! 注意：参考面，参考线等非实体元素统一设置为隐藏，使用前需要进行一步额外操作，将其设置为可见，后续再使用，使用一次后立即设置为不可见。
+! 如果是当前步骤构建参考面等，当前步骤完毕后，下一步骤中将会作为可见实体，可以进行使用。
+
 ## 1. Project Overview
 We are building a "Vision-Based CAD Modeling Step Reverse Generation System": Using a World Model (e.g., Emu3.5) acts as the **Planner**, deducing topological operations.
 
