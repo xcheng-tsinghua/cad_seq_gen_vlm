@@ -13,7 +13,7 @@ from utils.image_io import load_image_rgb, resize_pad_image
 
 SYSTEM_PROMPT = (
     "You are a CAD modeling planner. You infer the current CAD modeling step from visual evidence. "
-    "You do not fine-tune. You use retrieved historical CAD modeling examples as references."
+    "You use retrieved historical CAD modeling examples as references."
 )
 
 

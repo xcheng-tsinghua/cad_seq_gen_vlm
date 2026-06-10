@@ -2933,8 +2933,30 @@ Do not spend effort on fine-tuning.
 Please actually modify the codebase accordingly.
 
 
+-------------------------------- 2026.6.10
+我想构建一个智能体，现在的麻烦点在于智能体的选择。
+
+输入一个三维模型终图，现有模型的深度图（带Edge Frame），推理下一步需要执行什么建模命令，之后画出来下一步的需要执行的建模操作的伪预览图，以下是我发送给智能体的Prompt：
+
+SYSTEM_PROMPT = (
+    "You are a CAD modeling planner. You infer the current CAD modeling step from visual evidence. "
+    "You use retrieved historical CAD modeling examples as references."
+)
+
+DRAWING_RULES = """Preview drawing rules:
+- Keep the previous state depth map with edge frame unchanged as the background.
+- Apply a semi-transparent yellow mask on the sketch reference plane.
+- Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
+- Draw the colored_incremental_wireframe showing the local entity created, modified, or removed in this step.
+- colored_incremental_wireframe part1: Draw red solid lines for the reference 2D sketch used in the current operation.
+- colored_incremental_wireframe part2: Draw blue solid lines for the termination face contour of the local entity.
+- colored_incremental_wireframe part3: Draw green solid lines for other edges of the local entity."""
+
+我已给你发送 三维模型终图、现有模型的深度图（带Edge Frame）、下一步的需要执行的建模操作的伪预览图 示例。因此我用的智能体要有很强的推理能力，并具备一定的画图能力，因为我发现需要画的伪预览图并不是很复杂，比如带有毛发等复杂纹理等。
 
 
+---------------------
+现在的麻烦点在于，我使用图文理解统一模型Emu3.5后，发现它的
 
 
 

@@ -256,7 +256,7 @@ python scripts/launch_web_demo.py --config configs/rag.yaml
 Open:
 
 ```text
-http://SERVER_IP:8000
+http://localhost:8000/
 ```
 
 The server binds to `0.0.0.0` by default so other computers on the network can access it.
