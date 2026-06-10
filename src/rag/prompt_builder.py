@@ -103,7 +103,7 @@ Predict the current modeling operation type and generate the CAD-style preview i
 Retrieved reference examples:
 {refs}
 
-Please use the retrieved examples only as references. Do not copy them blindly. Adapt the operation to the query images.
+Please use the retrieved examples only as references. Do not copy them blindly.
 
 Return the operation type first in this exact format:
 Operation_Type: <operation_type>
