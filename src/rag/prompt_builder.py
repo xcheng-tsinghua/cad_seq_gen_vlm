@@ -18,7 +18,7 @@ SYSTEM_PROMPT = (
 
 
 DRAWING_RULES = """Preview drawing rules:
-- Keep the previous state depth map with edge frame unchanged as the background.
+- Keep the previous state depth map with edge frame unchanged as the background (panning and scaling are allowed).
 - Apply a semi-transparent yellow mask on the sketch reference plane.
 - Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
 - Draw the colored_incremental_wireframe showing the local entity created, modified, or removed in this step.
