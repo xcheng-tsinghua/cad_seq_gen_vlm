@@ -2967,4 +2967,26 @@ DRAWING_RULES = """Preview drawing rules:
 现有模型的深度图（带Edge Frame）图片生成时并不是完全不变，有可能要进行缩放和平移，因为下一步通过建模操作新增实体后，再fitAll，前一步的实体在窗口内的位置可能发生变化（相机视线方向固定，因此不会发生旋转视角导致前一步实体投影图发生变化），我想第一阶段看图模型输出离散的操作类型，extrude_add，然后把embedding输入到二阶段，来画图，图片还是按我原来的定义。这种路线怎么样？
 
 
+You are a CAD modeling planner. You infer the current CAD modeling step from visual evidence. 
+final_snapshot.png is the final CAD part snapshot for the query.
+current_depth_map_with_edge.png is the previous model state for the query.
+other images are example pseudo-preview images.
+Your task:
+generate the pseudo-preview image for this step.
+Preview drawing rules:
+- panning and scaling the previous model state as background.
+- Apply a semi-transparent yellow mask on the sketch reference plane.
+- Apply a semi-transparent cyan mask on reference geometry such as revolve axis or sweep path.
+- Draw the colored_incremental_wireframe showing the local entity created, modified, or removed in this step. 1) Draw red solid lines for the reference 2D sketch used in the current operation. 2) Draw blue solid lines for the termination face contour of the local entity. 3)Draw green solid lines for other edges of the local entity.
 
+
+--------------------
+You are a reverse CAD modeling planner. You infer the NEXT ONE CAD modeling command from visual queries. 
+final_snapshot.png is the final CAD part snapshot for the query.
+current_depth_map_with_edge.png is the current model state for the query.
+Your task: Predict the NEXT ONE modeling command type and generate the NEXT ONE modeling command pseudo-preview image.
+pseudo-preview image drawing rules:
+1. Panning and scaling the current_depth_map_with_edge.png as background.
+2. Apply a semi-transparent yellow mask on the sketch reference plane.
+3. Apply a semi-transparent cyan mask on reference geometry (e.g., revolve axis or sweep path).
+4. Draw the colored_incremental_wireframe showing the local entity created, modified, or removed by the NEXT ONE modeling command: i) Draw red solid lines for the reference 2D sketch used in the current operation. ii) Draw blue solid lines for the termination face contour of the local entity. iii)Draw green solid lines for other edges of the local entity.
